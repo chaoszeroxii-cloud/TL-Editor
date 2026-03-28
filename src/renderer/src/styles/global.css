@@ -1,0 +1,99 @@
+/* Google Fonts @import ถูกลบออก — ละเมิด CSP ใน Electron
+   ใช้ system font stack แทน: ได้ผลลัพธ์ใกล้เคียง ไม่ต้องโหลดเครือข่าย */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg0: #0e0f12;
+  --bg1: #13151a;
+  --bg2: #1a1d24;
+  --bg3: #22262f;
+  --bg4: #2a2f3a;
+  --border: #2e3340;
+  --text0: #e2e4ea;
+  --text1: #9aa0b0;
+  --text2: #5a6070;
+  --accent: #5b8af0;
+  --accent-dim: rgba(91, 138, 240, 0.12);
+  --accent-dim2: rgba(91, 138, 240, 0.06);
+
+  /* glossary highlight colors */
+  --hl-gold: #f5c542;
+  --hl-gold-bg: rgba(245, 197, 66, 0.14);
+  --hl-gold-border: rgba(245, 197, 66, 0.45);
+  --hl-teal: #3ecfa0;
+  --hl-teal-bg: rgba(62, 207, 160, 0.12);
+  --hl-teal-border: rgba(62, 207, 160, 0.45);
+  --hl-coral: #f07a6a;
+  --hl-coral-bg: rgba(240, 122, 106, 0.12);
+  --hl-coral-border: rgba(240, 122, 106, 0.45);
+  --hl-other: #a78bfa;
+  --hl-other-bg: rgba(167, 139, 250, 0.12);
+  --hl-other-border: rgba(167, 139, 250, 0.45);
+
+  --row-h: 28px;
+  --num-w: 48px;
+
+  /* Mono: ถ้า JetBrains Mono ติดตั้งอยู่ในเครื่องจะใช้อัตโนมัติ
+     ไม่งั้น fallback ไป Consolas / Menlo / monospace */
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+
+  /* UI: system-ui ดึง font ของ OS โดยตรง — รองรับภาษาไทยได้ดีบน macOS/Windows/Linux
+     ถ้าต้องการ Noto Sans Thai จริงๆ ให้ติดตั้ง font ไว้ในโปรเจกต์แล้ว @font-face แทน */
+  --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+#root {
+  height: 100%;
+  width: 100vw;
+}
+
+html,
+body,
+#root {
+  height: 100% !important;
+  display: block !important;
+  width: 100% !important;
+  overflow: hidden;
+  background: var(--bg0);
+  color: var(--text0);
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg4);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border);
+}
+
+/* Tooltip fade-in animation */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
