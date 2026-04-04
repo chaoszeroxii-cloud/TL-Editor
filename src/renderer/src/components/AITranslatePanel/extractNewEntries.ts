@@ -64,10 +64,30 @@ export function extractNewEntries(text: string): { cleaned: string; entries: Pen
     : text
 
   // 2) If no code block found, try bare { "New_Entry": ... } object
+  // Use a brace-depth scanner instead of a regex so nested objects are handled correctly
   if (!foundBlock) {
-    const bareRe = /\{[\s\S]*?"[Nn]ew_[Ee]ntry"\s*:[\s\S]*?\}/g
-    bareRe.lastIndex = 0
-    while ((m = bareRe.exec(text)) !== null) tryParse(m[0])
+    let i = 0
+    while (i < text.length) {
+      const start = text.indexOf('{', i)
+      if (start === -1) break
+      // Only attempt parse for objects that mention New_Entry
+      let depth = 0
+      let end = -1
+      for (let j = start; j < text.length; j++) {
+        if (text[j] === '{') depth++
+        else if (text[j] === '}') {
+          depth--
+          if (depth === 0) {
+            end = j
+            break
+          }
+        }
+      }
+      if (end === -1) break
+      const candidate = text.slice(start, end + 1)
+      if (/[Nn]ew_[Ee]ntry/.test(candidate)) tryParse(candidate)
+      i = end + 1
+    }
     cleaned = text
       .replace(/\{[\s\S]*?"[Nn]ew_[Ee]ntry"[\s\S]*?\}/gi, '')
       .replace(/```[\s\S]*?```/gi, '')

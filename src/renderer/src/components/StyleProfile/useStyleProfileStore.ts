@@ -3,7 +3,7 @@
 // Handles: persistence (via electron writeFile), correction capture,
 // AI analysis trigger, and exposing state to UI components.
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import type { StyleProfile, StyleProfileStore, Correction } from './types'
 import { analyzeDiff, generateId } from './diffEngine'
 import { runStyleAnalysis, computeStats, aggregatePatterns } from './styleAnalyzer'
@@ -70,7 +70,19 @@ export function useStyleProfileStore(rootDir: string | null): StyleProfileStore 
     [rootDir]
   )
 
-  // ── Load profile from parsed JSON ─────────────────────────────────────────
+  // ── Persist on every profile change ──────────────────────────────────────
+  // Using useEffect instead of calling persist() inside setState updaters.
+  // This guarantees: (a) React state is fully committed before the write,
+  // (b) no React "pure updater" rule violation, (c) the write happens on
+  // every render cycle where profile changed (not just the first microtask).
+  const lastPersistedRef = useRef<string>('')
+  useEffect(() => {
+    if (!profile || !rootDir) return
+    const json = JSON.stringify(profile, null, 2)
+    if (json === lastPersistedRef.current) return
+    lastPersistedRef.current = json
+    persist(profile)
+  }, [profile, persist, rootDir])
 
   const loadProfile = useCallback((raw: StyleProfile) => {
     setProfile(raw)
@@ -78,45 +90,40 @@ export function useStyleProfileStore(rootDir: string | null): StyleProfileStore 
 
   // ── Add a single correction ───────────────────────────────────────────────
 
-  const addCorrection = useCallback(
-    (before: string, after: string, sourceFile?: string) => {
-      if (!before.trim() || !after.trim() || before === after) return
+  const addCorrection = useCallback((before: string, after: string, sourceFile?: string) => {
+    if (!before.trim() || !after.trim() || before === after) return
 
-      const diff = analyzeDiff(before, after)
-      if (diff.similarity > SIM_MAX || diff.similarity < SIM_MIN) return
-      if (diff.tags.length === 0) return
+    const diff = analyzeDiff(before, after)
+    if (diff.similarity > SIM_MAX || diff.similarity < SIM_MIN) return
+    if (diff.tags.length === 0) return
 
-      const correction: Correction = {
-        id: generateId(),
-        timestamp: Date.now(),
-        before: before.slice(0, 500),
-        after: after.slice(0, 500),
-        similarity: diff.similarity,
-        tags: diff.tags,
-        sourceFile
+    const correction: Correction = {
+      id: generateId(),
+      timestamp: Date.now(),
+      before: before.slice(0, 500),
+      after: after.slice(0, 500),
+      similarity: diff.similarity,
+      tags: diff.tags,
+      sourceFile
+    }
+
+    setProfile((prev) => {
+      const base = prev ?? createEmptyProfile()
+      const recent = base.corrections.slice(-10)
+      if (recent.some((c) => c.before === correction.before && c.after === correction.after))
+        return prev
+
+      const corrections = [...base.corrections, correction]
+      const updated: StyleProfile = {
+        ...base,
+        corrections,
+        isDirty: true,
+        updatedAt: Date.now(),
+        stats: computeStats(corrections)
       }
-
-      setProfile((prev) => {
-        const base = prev ?? createEmptyProfile()
-        const recent = base.corrections.slice(-10)
-        if (recent.some((c) => c.before === correction.before && c.after === correction.after))
-          return prev
-
-        const corrections = [...base.corrections, correction]
-        const updated: StyleProfile = {
-          ...base,
-          corrections,
-          isDirty: true,
-          updatedAt: Date.now(),
-          stats: computeStats(corrections)
-        }
-        // Schedule persist outside the updater (side-effects must not run inside setState)
-        Promise.resolve().then(() => persist(updated))
-        return updated
-      })
-    },
-    [persist]
-  )
+      return updated
+    })
+  }, [])
 
   // ── Run AI analysis ───────────────────────────────────────────────────────
 
@@ -175,10 +182,9 @@ export function useStyleProfileStore(rootDir: string | null): StyleProfileStore 
         updatedAt: Date.now(),
         stats: computeStats([])
       }
-      Promise.resolve().then(() => persist(updated))
       return updated
     })
-  }, [persist])
+  }, [])
 
   // ── Full reset ────────────────────────────────────────────────────────────
 

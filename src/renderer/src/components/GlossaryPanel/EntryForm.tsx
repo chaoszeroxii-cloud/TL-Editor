@@ -1,6 +1,232 @@
-import { useState, useMemo, useCallback, JSX } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect, JSX } from 'react'
 import type { GlossaryEntry, GlossaryFileFormat } from '../../types'
 import { CascadingPathSelect, buildPathTree, PathTree } from './CascadingPathSelect'
+
+// ─── FileSelect ───────────────────────────────────────────────────────────────
+// Custom styled file-selector dropdown used inside EntryForm.
+
+function FileSelect({
+  value,
+  fileNames,
+  onChange
+}: {
+  value: string
+  fileNames: string[]
+  onChange: (v: string) => void
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent): void => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const label = value || '— ไม่ระบุ (session only) —'
+  const hasValue = !!value
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      {/* Trigger */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '5px 8px',
+          background: 'var(--bg2)',
+          border: `1px solid ${open ? 'rgba(212,175,55,0.6)' : hasValue ? 'rgba(212,175,55,0.4)' : 'var(--border)'}`,
+          borderRadius: 5,
+          cursor: 'pointer',
+          textAlign: 'left',
+          outline: 'none',
+          transition: 'border-color 0.12s'
+        }}
+      >
+        {/* File icon dot */}
+        <span
+          style={{
+            width: 5,
+            height: 5,
+            borderRadius: '50%',
+            flexShrink: 0,
+            background: hasValue ? 'var(--hl-gold)' : 'var(--border)',
+            transition: 'background 0.12s'
+          }}
+        />
+        <span
+          style={{
+            flex: 1,
+            fontSize: 11,
+            fontFamily: 'var(--font-mono)',
+            color: hasValue ? 'var(--hl-gold)' : 'var(--text2)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {label}
+        </span>
+        <svg
+          width="9"
+          height="9"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          style={{
+            flexShrink: 0,
+            color: 'var(--text2)',
+            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.15s'
+          }}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 3px)',
+            left: 0,
+            right: 0,
+            zIndex: 300,
+            background: 'var(--bg1)',
+            border: '1px solid rgba(212,175,55,0.35)',
+            borderRadius: 6,
+            boxShadow: '0 6px 20px rgba(0,0,0,0.6)',
+            overflow: 'hidden'
+          }}
+        >
+          {/* Session only */}
+          <button
+            type="button"
+            onClick={() => {
+              onChange('')
+              setOpen(false)
+            }}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '7px 10px',
+              background: !value ? 'rgba(212,175,55,0.08)' : 'none',
+              border: 'none',
+              borderBottom: '1px solid rgba(46,51,64,0.5)',
+              cursor: 'pointer',
+              textAlign: 'left'
+            }}
+            onMouseEnter={(e) => {
+              if (value) (e.currentTarget as HTMLElement).style.background = 'var(--bg2)'
+            }}
+            onMouseLeave={(e) => {
+              if (value) (e.currentTarget as HTMLElement).style.background = 'none'
+            }}
+          >
+            <span style={{ width: 17, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+              {!value && (
+                <svg
+                  width="9"
+                  height="9"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="var(--hl-gold)"
+                  strokeWidth="2.8"
+                  strokeLinecap="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                fontStyle: 'italic',
+                color: !value ? 'var(--hl-gold)' : 'var(--text2)',
+                fontFamily: 'var(--font-mono)'
+              }}
+            >
+              — ไม่ระบุ (session only) —
+            </span>
+          </button>
+
+          {/* File options */}
+          {fileNames.map((f) => {
+            const isActive = f === value
+            return (
+              <button
+                key={f}
+                type="button"
+                onClick={() => {
+                  onChange(f)
+                  setOpen(false)
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '7px 10px',
+                  background: isActive ? 'rgba(212,175,55,0.1)' : 'none',
+                  border: 'none',
+                  borderBottom: '1px solid rgba(46,51,64,0.4)',
+                  cursor: 'pointer',
+                  textAlign: 'left'
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) (e.currentTarget as HTMLElement).style.background = 'var(--bg2)'
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) (e.currentTarget as HTMLElement).style.background = 'none'
+                }}
+              >
+                <span style={{ width: 17, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                  {isActive && (
+                    <svg
+                      width="9"
+                      height="9"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="var(--hl-gold)"
+                      strokeWidth="2.8"
+                      strokeLinecap="round"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontFamily: 'var(--font-mono)',
+                    color: isActive ? 'var(--hl-gold)' : 'var(--text1)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {f}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ─── EntryForm ────────────────────────────────────────────────────────────────
 
@@ -93,19 +319,6 @@ export function EntryForm({
     fontFamily: 'var(--font-ui)',
     boxSizing: 'border-box'
   }
-  const selectSx: React.CSSProperties = {
-    width: '100%',
-    background: 'var(--bg2)',
-    border: '1px solid var(--border)',
-    borderRadius: 4,
-    color: 'var(--text1)',
-    fontSize: 11,
-    padding: '3px 6px',
-    outline: 'none',
-    fontFamily: 'var(--font-mono)',
-    boxSizing: 'border-box',
-    cursor: 'pointer'
-  }
 
   return (
     <div
@@ -143,25 +356,14 @@ export function EntryForm({
               >
                 Save to file
               </span>
-              <select
+              <FileSelect
                 value={targetFile}
-                onChange={(e) => {
-                  setTargetFile(e.target.value)
+                fileNames={fileNames}
+                onChange={(v) => {
+                  setTargetFile(v)
                   setSelectedPath([])
                 }}
-                style={{
-                  ...selectSx,
-                  color: targetFile ? 'var(--hl-gold)' : 'var(--text2)',
-                  borderColor: targetFile ? 'rgba(212,175,55,0.4)' : 'var(--border)'
-                }}
-              >
-                <option value="">— ไม่ระบุ (session only) —</option>
-                {fileNames.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
             <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />
           </>

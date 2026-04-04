@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useLayoutEffect, useRef, JSX } from 'react'
-import { IcoGlobe, IcoSpeaker, IcoBook } from '../common/icons'
+import { IcoGlobe, IcoSpeaker, IcoBook, IcoSparkle } from '../common/icons'
 
 interface CtxMenuState {
   x: number
@@ -12,6 +12,7 @@ interface ContextMenuProps {
   onTranslate: (text: string, x: number, y: number) => void
   onTts: (text: string) => void
   onAddToGlossary?: (text: string) => void
+  onSendToParaphrase?: (text: string) => void
   onClose: () => void
 }
 
@@ -20,6 +21,7 @@ export const ContextMenu = memo(function ContextMenu({
   onTranslate,
   onTts,
   onAddToGlossary,
+  onSendToParaphrase,
   onClose
 }: ContextMenuProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
@@ -61,6 +63,16 @@ export const ContextMenu = memo(function ContextMenu({
       icon: <IcoBook size={12} stroke="var(--hl-gold)" />,
       action: () => {
         onAddToGlossary?.(menu.selectedText)
+        onClose()
+      }
+    },
+    {
+      label: 'ส่งไป Paraphrase ✦',
+      accent: false,
+      icon: <IcoSparkle size={12} stroke="var(--accent)" />,
+      accentColor: 'var(--accent)',
+      action: () => {
+        onSendToParaphrase?.(menu.selectedText)
         onClose()
       }
     },
@@ -127,7 +139,11 @@ export const ContextMenu = memo(function ContextMenu({
             borderBottom: i < items.length - 1 ? '1px solid rgba(46,51,64,0.4)' : 'none',
             cursor: 'pointer',
             textAlign: 'left' as const,
-            color: item.accent ? 'var(--accent)' : 'var(--text0)',
+            color: item.accent
+              ? 'var(--accent)'
+              : 'accentColor' in item && item.accentColor
+                ? (item.accentColor as string)
+                : 'var(--text0)',
             fontSize: 12,
             fontFamily: 'var(--font-ui)',
             fontWeight: item.accent ? 500 : 400

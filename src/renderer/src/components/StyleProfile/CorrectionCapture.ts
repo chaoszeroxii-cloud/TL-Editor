@@ -6,7 +6,7 @@
 // Design: zero UI, zero side-effects beyond calling addCorrection.
 // Drop this into App.tsx with a single useEffect.
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface UseCorrectionCaptureProps {
   /** Current TGT content (line by line from useFileStore) */
@@ -33,11 +33,22 @@ export function useCorrectionCapture({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Track last captured content to avoid duplicates
   const lastCapturedRef = useRef<string>('')
+  // Keep latest tgtPath and onCapture in refs so the debounce closure is never stale
+  const tgtPathRef = useRef(tgtPath)
+  const onCaptureRef = useRef(onCapture)
+  useEffect(() => {
+    tgtPathRef.current = tgtPath
+  }, [tgtPath])
+  useEffect(() => {
+    onCaptureRef.current = onCapture
+  }, [onCapture])
 
   // Update aiRowsRef whenever new AI content arrives
   useEffect(() => {
     if (aiGeneratedContent !== null) {
       aiRowsRef.current = aiGeneratedContent.split('\n')
+      // Reset last-captured so the NEXT edit (after this baseline) is compared fresh
+      lastCapturedRef.current = aiGeneratedContent
     }
   }, [aiGeneratedContent])
 
@@ -50,30 +61,34 @@ export function useCorrectionCapture({
 
     if (debounceRef.current) clearTimeout(debounceRef.current)
 
-    debounceRef.current = setTimeout(() => {
-      const aiRows = aiRowsRef.current
-      if (!aiRows) return
+    // Snapshot values at schedule time — don't rely on ref reads inside the callback
+    // for values that must be consistent with the content being compared.
+    const aiRowsSnapshot = aiRowsRef.current
+    const contentSnapshot = tgtContent
 
-      const currentRows = tgtContent.split('\n')
-      const sourceFile = tgtPath?.split(/[\\/]/).pop()
+    debounceRef.current = setTimeout(() => {
+      const currentRows = contentSnapshot.split('\n')
+      const sourceFile = tgtPathRef.current?.split(/[\\/]/).pop()
 
       // Compare row-by-row; only capture changed rows
-      const maxLen = Math.max(aiRows.length, currentRows.length)
+      const maxLen = Math.max(aiRowsSnapshot.length, currentRows.length)
       for (let i = 0; i < maxLen; i++) {
-        const before = (aiRows[i] ?? '').trim()
+        const before = (aiRowsSnapshot[i] ?? '').trim()
         const after = (currentRows[i] ?? '').trim()
         if (before && after && before !== after) {
-          onCapture(before, after, sourceFile)
+          onCaptureRef.current(before, after, sourceFile)
         }
       }
 
-      lastCapturedRef.current = tgtContent
+      lastCapturedRef.current = contentSnapshot
     }, 1500)
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [tgtContent, onCapture, tgtPath])
+    // Only re-run when content actually changes — tgtPath/onCapture are read via refs
+    // // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tgtContent])
 }
 
 // ── Utility: check if content looks like AI output ────────────────────────────
@@ -85,22 +100,10 @@ export function useAiContentTracker(): {
   aiContent: string | null
   setAiContent: (content: string) => void
 } {
-  // useRef alone is insufficient here: the returned object literal is recreated
-  // every render but the getter always reads the same ref cell, so consumers
-  // (useCorrectionCapture) will never see an updated value via React's dep tracking.
-  // Use a ref for the *value* and expose a stable setter; callers that need to
-  // react to the new value can compare against the ref in their own effects.
-  const aiContentRef = useRef<string | null>(null)
-  // Stable setter — does NOT cause a re-render (intentional: we don't want the
-  // whole app to re-render on every AI token; useCorrectionCapture reads the ref
-  // in its own debounced effect).
-  const setAiContent = useCallback((content: string): void => {
-    aiContentRef.current = content
-  }, [])
-  return {
-    get aiContent() {
-      return aiContentRef.current
-    },
-    setAiContent
-  }
+  // Must use useState so that calling setAiContent causes App to re-render,
+  // which passes the new value as a prop to useCorrectionCapture's effect.
+  // A plain ref getter never triggers re-renders, so aiGeneratedContent would
+  // always be null and no corrections would ever be captured.
+  const [aiContent, setAiContent] = useState<string | null>(null)
+  return { aiContent, setAiContent }
 }

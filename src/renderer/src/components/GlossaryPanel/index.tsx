@@ -17,6 +17,9 @@ export interface GlossaryPanelProps {
   currentContent?: string
   prefillSrc?: string | null
   onPrefillConsumed?: () => void
+  /** Entry ที่ต้องการเปิด edit form ทันที (จาก tooltip) */
+  prefillEntry?: GlossaryEntry | null
+  onPrefillEntryConsumed?: () => void
 }
 
 export const GlossaryPanel = memo(function GlossaryPanel({
@@ -28,7 +31,9 @@ export const GlossaryPanel = memo(function GlossaryPanel({
   onGlossaryChange,
   currentContent = '',
   prefillSrc,
-  onPrefillConsumed
+  onPrefillConsumed,
+  prefillEntry,
+  onPrefillEntryConsumed
 }: GlossaryPanelProps): JSX.Element {
   const [filter, setFilter] = useState('all')
   const [fileFilter, setFileFilter] = useState('all')
@@ -36,11 +41,21 @@ export const GlossaryPanel = memo(function GlossaryPanel({
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveOk, setSaveOk] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    },
+    []
+  )
   const [addMode, setAddMode] = useState(false)
   const [addInitialSrc, setAddInitialSrc] = useState('')
   const [viewMode, setViewMode] = useState<'flat' | 'tree'>('tree')
   const [drillPath, setDrillPath] = useState<string[]>([])
   const prevViewModeRef = useRef<'flat' | 'tree'>('tree')
+  /** Entry ที่กำลัง inline-edit จาก tooltip */
+  const [inlineEditEntry, setInlineEditEntry] = useState<GlossaryEntry | null>(null)
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 150)
@@ -54,6 +69,14 @@ export const GlossaryPanel = memo(function GlossaryPanel({
     setAddMode(true)
     onPrefillConsumed?.()
   }, [prefillSrc]) // eslint-disable-line
+
+  // Auto-open inline edit when prefillEntry arrives (จาก tooltip ✎)
+  useEffect(() => {
+    if (!prefillEntry) return
+    setInlineEditEntry(prefillEntry)
+    setAddMode(false) // ปิด add form ถ้าเปิดอยู่
+    onPrefillEntryConsumed?.()
+  }, [prefillEntry]) // eslint-disable-line
 
   // Auto-switch to flat when searching
   useEffect(() => {
@@ -102,6 +125,7 @@ export const GlossaryPanel = memo(function GlossaryPanel({
 
   const handleSave = useCallback(async () => {
     setSaving(true)
+    setSaveError(null)
     try {
       if (glossaryPath) {
         const content = hasNestedPaths(glossary)
@@ -116,15 +140,28 @@ export const GlossaryPanel = memo(function GlossaryPanel({
             byFile.get(e._file)!.push(e)
           }
         }
-        for (const [fileName, entries] of byFile) {
-          await window.electron.writeFile(
-            sourceFilePaths[fileName],
-            serializeByFormat(entries, sourceFileFormats[fileName])
+        // Write all files concurrently and collect any errors
+        const results = await Promise.allSettled(
+          Array.from(byFile.entries()).map(([fileName, entries]) =>
+            window.electron.writeFile(
+              sourceFilePaths[fileName],
+              serializeByFormat(entries, sourceFileFormats[fileName])
+            )
           )
+        )
+        const failed = results.filter((r) => r.status === 'rejected')
+        if (failed.length > 0) {
+          const msg = (failed[0] as PromiseRejectedResult).reason
+          throw new Error(String(msg))
         }
       }
       setSaveOk(true)
-      setTimeout(() => setSaveOk(false), 2000)
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = setTimeout(() => setSaveOk(false), 2000)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e))
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = setTimeout(() => setSaveError(null), 4000)
     } finally {
       setSaving(false)
     }
@@ -203,9 +240,7 @@ export const GlossaryPanel = memo(function GlossaryPanel({
         : hasNestedPaths(found)
           ? serializeToNested(found)
           : JSON.stringify(found, null, 2)
-      const defaultName = fileFilter
-        ? `${fileFilter.replace(/\.json$/i, '')}_current.json`
-        : 'glossary_current.json'
+      const defaultName = 'glossary.json'
       await window.electron.saveFile(defaultName, serialized)
     },
     [glossary, currentContent, sourceFileFormats]
@@ -288,13 +323,18 @@ export const GlossaryPanel = memo(function GlossaryPanel({
           </button>
           {canSave && (
             <button
-              style={{ ...btnIcon, color: saveOk ? 'var(--hl-teal)' : 'var(--text2)' }}
+              style={{
+                ...btnIcon,
+                color: saveError ? 'var(--hl-coral)' : saveOk ? 'var(--hl-teal)' : 'var(--text2)'
+              }}
               onClick={handleSave}
               disabled={saving}
-              title="Save"
+              title={saveError ?? 'Save'}
             >
               {saving ? (
                 '…'
+              ) : saveError ? (
+                '✕'
               ) : saveOk ? (
                 <IcoCheck size={13} stroke="currentColor" />
               ) : (
@@ -412,6 +452,65 @@ export const GlossaryPanel = memo(function GlossaryPanel({
           defaultFile={fileFilter !== 'all' ? fileFilter : (fileNames[0] ?? '')}
           glossary={glossary}
         />
+      )}
+
+      {/* Inline edit form — เปิดจาก Tooltip ✎ */}
+      {inlineEditEntry && !addMode && (
+        <div
+          style={{
+            borderBottom: '2px solid var(--accent)',
+            background: 'rgba(91,138,240,0.04)'
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 8px 0',
+              marginBottom: -2
+            }}
+          >
+            <span
+              style={{
+                fontSize: 9,
+                color: 'var(--accent)',
+                fontFamily: 'var(--font-mono)',
+                letterSpacing: '0.06em'
+              }}
+            >
+              ✎ EDITING
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                color: 'var(--text2)',
+                fontFamily: 'var(--font-mono)',
+                flex: 1,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {inlineEditEntry.src}
+            </span>
+          </div>
+          <EntryForm
+            title=""
+            initial={{ ...inlineEditEntry }}
+            onSubmit={(updated, targetFile) => {
+              handleEdit(updated, inlineEditEntry, targetFile)
+              setInlineEditEntry(null)
+            }}
+            onCancel={() => setInlineEditEntry(null)}
+            submitLabel="Save"
+            availableTypes={availableTypes}
+            fileNames={fileNames}
+            sourceFileFormats={sourceFileFormats}
+            defaultFile={inlineEditEntry._file ?? fileNames[0] ?? ''}
+            glossary={glossary}
+          />
+        </div>
       )}
 
       {/* Flat list */}

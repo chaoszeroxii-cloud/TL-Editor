@@ -221,6 +221,21 @@ export default function App(): JSX.Element {
     [app, gls]
   )
 
+  // ── Glossary: edit entry จาก Tooltip ✎ ──────────────────────────────────
+  const [glossaryPrefillEntry, setGlossaryPrefillEntry] = useState<
+    import('./types').GlossaryEntry | null
+  >(null)
+
+  useEffect(() => {
+    const onEdit = (e: Event): void => {
+      const entry = (e as CustomEvent).detail as import('./types').GlossaryEntry
+      app.setGlossaryVisible(true)
+      setGlossaryPrefillEntry(entry)
+    }
+    window.addEventListener('hl:edit', onEdit)
+    return () => window.removeEventListener('hl:edit', onEdit)
+  }, [app])
+
   // ── AI result ────────────────────────────────────────────────────────────
   // Style profile store
   const styleProfile = useStyleProfileStore(app.rootDir)
@@ -253,11 +268,46 @@ export default function App(): JSX.Element {
   // Wrap handleAiResult to track what AI generated
   const handleAiResult = useCallback(
     (translated: string) => {
-      setAiContent(translated) // ← เพิ่มบรรทัดนี้
+      setAiContent(translated)
       files.handleTgtChange(translated)
     },
     [files, setAiContent]
   )
+
+  const handlePushParaphrase = useCallback(
+    (orig: string, result: string) => {
+      const cur = files.tgtContentRef.current
+      const idx = cur.indexOf(orig)
+      if (idx !== -1) {
+        files.handleTgtChange(cur.slice(0, idx) + result + cur.slice(idx + orig.length))
+      } else {
+        files.handleTgtChange(result) // fallback
+      }
+    },
+    [files]
+  )
+
+  // ── Send selected text to Paraphrase tab ─────────────────────────────────
+  const [paraphraseInput, setParaphraseInput] = useState<string | null>(null)
+
+  const handleSendToParaphrase = useCallback(
+    (text: string) => {
+      app.setAiPanelOpen(true)
+      setParaphraseInput(text)
+    },
+    [app]
+  )
+
+  // Treat the tgt file content as AI baseline when a file is loaded.
+  // This lets corrections be captured even when the user manually opens an
+  // AI-translated file (instead of using the in-app AI translate button).
+  useEffect(() => {
+    if (files.tgtContent && files.tgtPath) {
+      setAiContent(files.tgtContent)
+    }
+    // Only re-seed when a NEW file is loaded (tgtPath changes), not on every edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files.tgtPath])
 
   // ── Match count for status bar ────────────────────────────────────────────
   const [matchCount, setMatchCount] = useState(0)
@@ -331,7 +381,7 @@ export default function App(): JSX.Element {
           onToggleGlossary={app.toggleGlossary}
           onToggleTerminal={app.toggleTerminal}
           onToggleAi={app.toggleAiPanel}
-          onOpenJsonManager={() => app.setJsonManagerOpen(true)}
+          onOpenJsonManager={() => app.setJsonManagerOpen((v) => !v)}
           onRefresh={handleRefresh}
         />
       </div>
@@ -383,6 +433,7 @@ export default function App(): JSX.Element {
                 onCopyTgt={files.handleCopyTgt}
                 onCopySrc={files.handleCopySrc}
                 onAddToGlossary={handleAddToGlossary}
+                onSendToParaphrase={handleSendToParaphrase}
               />
             </>
           ) : (
@@ -405,6 +456,8 @@ export default function App(): JSX.Element {
             currentContent={`${files.srcContent}\n${files.tgtContent}`}
             prefillSrc={gls.glossaryPrefillSrc}
             onPrefillConsumed={() => gls.setGlossaryPrefillSrc(null)}
+            prefillEntry={glossaryPrefillEntry}
+            onPrefillEntryConsumed={() => setGlossaryPrefillEntry(null)}
           />
         )}
 
@@ -418,6 +471,9 @@ export default function App(): JSX.Element {
             onAddEntries={gls.handleAddAiEntries}
             onResult={handleAiResult}
             stylePromptSnippet={styleProfile.getPromptSnippet()}
+            onPushParaphrase={handlePushParaphrase}
+            paraphraseInput={paraphraseInput}
+            onParaphraseInputConsumed={() => setParaphraseInput(null)}
           />
         )}
 

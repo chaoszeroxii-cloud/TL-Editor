@@ -252,11 +252,18 @@ export function PythonTab({
   const saveConfig = useCallback(async (patch: Record<string, unknown>): Promise<void> => {
     try {
       const cfg = await window.electron.getEnvConfig()
+      // Spread ALL existing config fields so nothing is silently dropped
       await window.electron.saveConfig({
         folderPath: cfg.folderPath,
         jsonPaths: cfg.jsonPaths,
+        pythonExe: cfg.pythonExe ?? undefined,
+        pythonScript: cfg.pythonScript ?? undefined,
+        pythonCwd: cfg.pythonCwd ?? undefined,
+        aiApiKey: cfg.aiApiKey,
+        aiPromptPath: cfg.aiPromptPath,
+        aiGlossaryPath: cfg.aiGlossaryPath,
         ...patch
-      } as any)
+      })
     } catch {
       /* ignore */
     }

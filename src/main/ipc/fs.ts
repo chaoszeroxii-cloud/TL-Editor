@@ -62,7 +62,15 @@ export function registerFsHandlers(): void {
   ipcMain.handle('fs:readGlossary', async (_e, dirPath: string) => {
     const candidates = [join(dirPath, 'glossary.json'), join(dirPath, '..', 'glossary.json')]
     for (const p of candidates) {
-      if (existsSync(p)) return JSON.parse(await readFile(p, 'utf-8'))
+      if (existsSync(p)) {
+        try {
+          return JSON.parse(await readFile(p, 'utf-8'))
+        } catch {
+          // Malformed glossary.json — return empty rather than crashing
+          console.warn(`[fs:readGlossary] Failed to parse ${p} — returning empty glossary`)
+          return []
+        }
+      }
     }
     return []
   })
