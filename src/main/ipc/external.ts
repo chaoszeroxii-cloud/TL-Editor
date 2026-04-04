@@ -42,13 +42,13 @@ export function registerExternalHandlers(): void {
       }
     ) => {
       return new Promise<string>((resolve, reject) => {
-        const body = JSON.stringify({ model, messages, temperature: 0.3, max_tokens: 8000 })
+        const body = JSON.stringify({ model, messages, temperature: 0.3, max_tokens: 15000 })
 
-        // Hard timeout — abort if no response within 60 s
+        // Hard timeout — abort if no response within 300 s
         const timeout = setTimeout(() => {
           req.abort()
-          reject(new Error('OpenRouter request timed out after 60 s'))
-        }, 60_000)
+          reject(new Error('OpenRouter request timed out after 300 s'))
+        }, 300_000)
 
         const req = net.request({
           method: 'POST',

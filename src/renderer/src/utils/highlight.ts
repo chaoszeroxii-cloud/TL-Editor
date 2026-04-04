@@ -49,8 +49,14 @@ function compile(glossary: GlossaryEntry[]): { re: RegExp; map: Map<string, Glos
   const map = new Map<string, GlossaryEntry>()
   for (const g of sorted) {
     map.set(g.src, g)
+    // Also index by lowercase so the gi-flag regex match can always find its entry
+    // regardless of whether src is "Senior Sister" and text has "senior sister" or vice versa.
+    map.set(g.src.toLowerCase(), g)
     if (/[A-Za-z]$/.test(g.src)) {
-      for (const sfx of ["'s", 's', 'es', 'ed', 'ing', 'er', 'ers']) map.set(g.src + sfx, g)
+      for (const sfx of ["'s", 's', 'es', 'ed', 'ing', 'er', 'ers']) {
+        map.set(g.src + sfx, g)
+        map.set(g.src.toLowerCase() + sfx, g)
+      }
     }
   }
 

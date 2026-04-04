@@ -32,24 +32,37 @@ export function useKeyboardShortcuts({
   sourceFilePathsCount
 }: UseKeyboardShortcutsProps): void {
   useEffect(() => {
+    const isEditing = (): boolean => {
+      const el = document.activeElement
+      return el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement
+    }
+
     const onKey = (e: KeyboardEvent): void => {
       if (!e.ctrlKey && !e.metaKey) return
       const code = e.code
 
       if (code === 'KeyS') {
-        e.preventDefault()
-        if (e.shiftKey) handleSrcSave()
-        else handleSave()
+        // Allow Ctrl+S to reach the textarea first; Row dispatches 'app:save' after committing
+        if (!isEditing()) {
+          e.preventDefault()
+          if (e.shiftKey) handleSrcSave()
+          else handleSave()
+        }
         return
       }
+      // Undo/Redo: let Row handle these when a textarea is focused
       if (code === 'KeyZ' && !e.shiftKey) {
-        e.preventDefault()
-        handleUndo()
+        if (!isEditing()) {
+          e.preventDefault()
+          handleUndo()
+        }
         return
       }
       if (code === 'KeyY' || (code === 'KeyZ' && e.shiftKey)) {
-        e.preventDefault()
-        handleRedo()
+        if (!isEditing()) {
+          e.preventDefault()
+          handleRedo()
+        }
         return
       }
       if (code === 'Backquote') {
@@ -68,23 +81,31 @@ export function useKeyboardShortcuts({
         return
       }
       if (code === 'KeyR') {
-        e.preventDefault()
-        handleRefresh()
+        if (!isEditing()) {
+          e.preventDefault()
+          handleRefresh()
+        }
         return
       }
       if (code === 'KeyJ') {
-        e.preventDefault()
-        toggleJsonManager(sourceFilePathsCount > 0)
+        if (!isEditing()) {
+          e.preventDefault()
+          toggleJsonManager(sourceFilePathsCount > 0)
+        }
         return
       }
       if (code === 'KeyC' && e.shiftKey) {
-        e.preventDefault()
-        handleCopyTgt()
+        if (!isEditing()) {
+          e.preventDefault()
+          handleCopyTgt()
+        }
         return
       }
       if (code === 'KeyC' && e.altKey) {
-        e.preventDefault()
-        handleCopySrc()
+        if (!isEditing()) {
+          e.preventDefault()
+          handleCopySrc()
+        }
         return
       }
       // Ctrl+Shift+P → toggle Style Profile

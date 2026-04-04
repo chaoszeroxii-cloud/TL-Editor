@@ -413,46 +413,72 @@ export function JsonRawEditorModal({ files, onClose }: JsonRawEditorModalProps):
     const pre = syntaxRef.current
     if (!pre) return
 
-    const cursorLineIdx = content.slice(0, cursorPos).split('\n').length - 1
     const lines = content.split('\n')
-    const curIndent = lines[cursorLineIdx]?.match(/^ */)?.[0].length ?? 0
+    const cursorLineIdx = content.slice(0, cursorPos).split('\n').length - 1
+    const indentOf = (i: number): number => lines[i]?.match(/^ */)?.[0].length ?? 0
+    const curIndent = indentOf(cursorLineIdx)
 
-    // Is this line a container? (next non-empty line is indented deeper)
-    let isContainer = false
-    for (let i = cursorLineIdx + 1; i < lines.length; i++) {
-      if (!lines[i].trim()) continue
-      isContainer = (lines[i].match(/^ */)?.[0].length ?? 0) > curIndent
-      break
+    // The "containing block" is always at curIndent - 2.
+    // - Leaf line (e.g. "Called": "...") at indent=8  → container at indent=6
+    // - Opener line ("Yan Hong": {)    at indent=6  → container (parent) at indent=4
+    // - Closer line (},)               at indent=6  → container at indent=4
+    // All cases: containingIndent = max(0, curIndent - 2)
+    const containingIndent = Math.max(0, curIndent - 2)
+    const activeDepth = containingIndent / 2
+
+    // At root level (indent=0 or 2 with no parent) there is no guide to highlight
+    if (containingIndent === 0 && curIndent <= 2) {
+      pre.querySelectorAll<HTMLElement>('[data-d]').forEach((el) => {
+        el.style.borderLeftColor = GUIDE_DIM
+      })
+      return
     }
 
-    const activeDepth = isContainer
-      ? Math.floor(curIndent / 2)
-      : Math.max(0, Math.floor(curIndent / 2) - 1)
-
-    // Scope: lines that have indent >= threshold around cursor
-    const threshold = activeDepth * 2
+    // Scan UP: find the nearest OPENING bracket at containingIndent,
+    // skipping over fully-nested sibling blocks via a depth counter.
     let scopeStart = cursorLineIdx
-    let scopeEnd = cursorLineIdx
-
+    let depth = 0
     for (let i = cursorLineIdx - 1; i >= 0; i--) {
-      const lead = lines[i].match(/^ */)?.[0].length ?? 0
-      if (lead < threshold) {
-        scopeStart = i
-        break
+      const ind = indentOf(i)
+      if (ind < containingIndent) break // left the parent entirely
+      if (ind === containingIndent) {
+        const t = lines[i]?.trimStart() ?? ''
+        if (/^[}\]]/.test(t)) {
+          depth++ // sibling's closer — skip its opener
+        } else if (/[{[]/.test(t)) {
+          if (depth > 0) {
+            depth--
+            continue
+          } // this was the sibling's opener
+          scopeStart = i
+          break // found our container's opener
+        }
       }
-      scopeStart = i
-    }
-    for (let i = cursorLineIdx + 1; i < lines.length; i++) {
-      const lead = lines[i].match(/^ */)?.[0].length ?? 0
-      if (lead < threshold) {
-        scopeEnd = i
-        break
-      }
-      scopeEnd = i
+      // lines deeper than containingIndent are content — skip
     }
 
-    const all = pre.querySelectorAll<HTMLElement>('[data-d]')
-    all.forEach((el) => {
+    // Scan DOWN: find the nearest CLOSING bracket at containingIndent.
+    let scopeEnd = cursorLineIdx
+    depth = 0
+    for (let i = cursorLineIdx + 1; i < lines.length; i++) {
+      const ind = indentOf(i)
+      if (ind < containingIndent) break
+      if (ind === containingIndent) {
+        const t = lines[i]?.trimStart() ?? ''
+        if (/[{[]/.test(t)) {
+          depth++ // sibling's opener — skip its closer
+        } else if (/^[}\]]/.test(t)) {
+          if (depth > 0) {
+            depth--
+            continue
+          }
+          scopeEnd = i
+          break
+        }
+      }
+    }
+
+    pre.querySelectorAll<HTMLElement>('[data-d]').forEach((el) => {
       const d = Number(el.getAttribute('data-d'))
       if (d !== activeDepth) {
         el.style.borderLeftColor = GUIDE_DIM
@@ -505,7 +531,9 @@ export function JsonRawEditorModal({ files, onClose }: JsonRawEditorModalProps):
   const handleUndo = useCallback(() => {
     const prev = undoStack.current.pop()
     if (prev === undefined) return
-    redoStack.current.push(content)
+    // Push the *current* live value (taRef is always up-to-date, content state may lag)
+    const live = taRef.current?.value ?? content
+    redoStack.current.push(live)
     setUndoCount(undoStack.current.length)
     setRedoCount(redoStack.current.length)
     setContent(prev)
@@ -520,7 +548,8 @@ export function JsonRawEditorModal({ files, onClose }: JsonRawEditorModalProps):
   const handleRedo = useCallback(() => {
     const next = redoStack.current.pop()
     if (next === undefined) return
-    undoStack.current.push(content)
+    const live = taRef.current?.value ?? content
+    undoStack.current.push(live)
     setUndoCount(undoStack.current.length)
     setRedoCount(redoStack.current.length)
     setContent(next)
@@ -878,11 +907,12 @@ export function JsonRawEditorModal({ files, onClose }: JsonRawEditorModalProps):
   useEffect(() => {
     if (syntaxRef.current) {
       syntaxRef.current.innerHTML = highlightedHtml
-      activeGuideDepthRef.current = -1 // reset so guide re-highlights correctly
-      // Re-apply guide highlight after new HTML (spans are fresh DOM nodes)
+      activeGuideDepthRef.current = -1
+      // Re-apply guide highlight using last known cursor line
+      // Don't gate on activeElement — after setContent the textarea may briefly lose focus
       const ta = taRef.current
-      if (ta && document.activeElement === ta) {
-        const pos = ta.selectionStart
+      if (ta) {
+        const pos = Math.min(ta.selectionStart, ta.value.length)
         const before = ta.value.slice(0, pos)
         const linesBefore = before.split('\n')
         updateCursor(

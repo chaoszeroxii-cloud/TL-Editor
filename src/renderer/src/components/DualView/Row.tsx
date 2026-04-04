@@ -8,11 +8,11 @@ import type { FindRange, FindSeg } from './findHighlight'
 const ROW_H = 28
 
 // ─── Mirror div (singleton) for visual-line detection ─────────────────────────
+// NOTE: The mirror is intentionally a document-level singleton (cheap, one DOM node).
+// We always fully sync its style before every measurement so that two textareas
+// with different widths/fonts (e.g. the src and tgt columns) never corrupt the cache.
 
 let _mirror: HTMLDivElement | null = null
-let _mFont = '',
-  _mWidth = 0,
-  _mPad = ''
 
 function ensureMirror(): HTMLDivElement {
   if (!_mirror) {
@@ -25,23 +25,13 @@ function ensureMirror(): HTMLDivElement {
 }
 
 function syncMirrorStyle(mirror: HTMLDivElement, ta: HTMLTextAreaElement): void {
+  // Always unconditionally sync all properties — the singleton is shared between
+  // src and tgt rows which may have different widths, so a stale cache is wrong.
   const cs = window.getComputedStyle(ta)
-  const font = cs.font,
-    width = ta.clientWidth
-  const pad = `${cs.paddingTop} ${cs.paddingRight} ${cs.paddingBottom} ${cs.paddingLeft}`
-  if (font !== _mFont) {
-    mirror.style.font = font
-    _mFont = font
-  }
-  if (width !== _mWidth) {
-    mirror.style.width = width + 'px'
-    _mWidth = width
-  }
-  if (pad !== _mPad) {
-    mirror.style.padding = pad
-    mirror.style.lineHeight = cs.lineHeight
-    _mPad = pad
-  }
+  mirror.style.font = cs.font
+  mirror.style.width = ta.clientWidth + 'px'
+  mirror.style.padding = `${cs.paddingTop} ${cs.paddingRight} ${cs.paddingBottom} ${cs.paddingLeft}`
+  mirror.style.lineHeight = cs.lineHeight
 }
 
 function getVisualLineInfo(ta: HTMLTextAreaElement): { onFirst: boolean; onLast: boolean } {

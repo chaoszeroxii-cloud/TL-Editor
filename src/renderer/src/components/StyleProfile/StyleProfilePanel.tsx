@@ -2,7 +2,7 @@
 // UI panel for viewing/managing the style profile.
 // Follows the same visual language as GlossaryPanel and AITranslatePanel.
 
-import { useState, memo, useMemo, JSX } from 'react'
+import { useState, memo, useMemo, useRef, useEffect, JSX } from 'react'
 import type { StyleProfile, CorrectionTag, StylePattern } from './types'
 
 // ── Tag metadata ──────────────────────────────────────────────────────────────
@@ -227,20 +227,100 @@ const CorrectionLog = memo(function CorrectionLog({
       </div>
       <div style={{ overflowY: 'auto', flex: 1 }}>
         {recent.length === 0 && (
-          <div
-            style={{
-              padding: '16px 10px',
-              color: 'var(--text2)',
-              fontSize: 11,
-              textAlign: 'center' as const,
-              fontStyle: 'italic'
-            }}
-          >
-            ยังไม่มี corrections
-            <br />
-            <span style={{ fontSize: 10, opacity: 0.6 }}>
-              แก้ไขการแปลของ AI แล้วระบบจะจับอัตโนมัติ
-            </span>
+          <div style={{ padding: '14px 10px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {/* How it works card */}
+            <div
+              style={{
+                background: 'var(--bg2)',
+                border: '1px solid var(--border)',
+                borderRadius: 7,
+                padding: '10px 12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 9,
+                  color: 'var(--accent)',
+                  fontFamily: 'var(--font-mono)',
+                  letterSpacing: '0.07em',
+                  textTransform: 'uppercase' as const
+                }}
+              >
+                วิธีใช้งาน
+              </span>
+              {[
+                { n: '1', text: 'เปิดไฟล์แปล (AI แปลไว้แล้ว) หรือกด "AI แปล" ในแอป' },
+                { n: '2', text: 'แก้ไขคำแปลในหน้าต่างซ้าย (คอลัมน์ TRANSLATION)' },
+                { n: '3', text: 'หยุดพิมพ์ 1.5 วิ — ระบบจะจับการแก้ไขอัตโนมัติ' },
+                { n: '4', text: 'หลังสะสม 3+ corrections กด Analyze เพื่อสร้าง Style Guide' }
+              ].map(({ n, text }) => (
+                <div key={n} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <span
+                    style={{
+                      width: 16,
+                      height: 16,
+                      borderRadius: '50%',
+                      flexShrink: 0,
+                      background: 'var(--accent-dim)',
+                      border: '1px solid rgba(91,138,240,0.35)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 8,
+                      color: 'var(--accent)',
+                      fontFamily: 'var(--font-mono)',
+                      fontWeight: 700
+                    }}
+                  >
+                    {n}
+                  </span>
+                  <span style={{ fontSize: 10, color: 'var(--text1)', lineHeight: 1.6 }}>
+                    {text}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* What counts as a correction */}
+            <div
+              style={{
+                background: 'var(--bg0)',
+                border: '1px solid var(--border)',
+                borderRadius: 7,
+                padding: '10px 12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 9,
+                  color: 'var(--text2)',
+                  fontFamily: 'var(--font-mono)',
+                  letterSpacing: '0.07em',
+                  textTransform: 'uppercase' as const
+                }}
+              >
+                จับเมื่อไหร่?
+              </span>
+              <div style={{ fontSize: 10, color: 'var(--text2)', lineHeight: 1.7 }}>
+                <span style={{ color: 'var(--hl-teal)' }}>✓ จับ</span> — แก้คำแปล AI แล้วความเหมือน
+                5–97%
+                <br />
+                <span style={{ color: 'var(--hl-coral)' }}>✕ ไม่จับ</span> — แก้ไฟล์ที่ไม่ได้แปลจาก
+                AI
+                <br />
+                <span style={{ color: 'var(--hl-coral)' }}>✕ ไม่จับ</span> — เปลี่ยนน้อยมาก (แค่
+                whitespace)
+                <br />
+                <span style={{ color: 'var(--hl-coral)' }}>✕ ไม่จับ</span> — เขียนใหม่ทั้งหมด
+                (&lt;5% เหมือน)
+              </div>
+            </div>
           </div>
         )}
         {recent.map((c) => (
@@ -309,6 +389,13 @@ const StyleGuideView = memo(function StyleGuideView({
   promptSnippet: string
 }) {
   const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+    },
+    []
+  )
 
   if (!styleGuide) {
     return (
@@ -364,7 +451,8 @@ const StyleGuideView = memo(function StyleGuideView({
               onClick={() => {
                 navigator.clipboard.writeText(promptSnippet)
                 setCopied(true)
-                setTimeout(() => setCopied(false), 1500)
+                if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+                copyTimerRef.current = setTimeout(() => setCopied(false), 1500)
               }}
               style={{
                 background: 'none',

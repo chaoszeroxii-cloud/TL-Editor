@@ -83,13 +83,17 @@ export function registerConfigHandlers(): void {
       if (!normalized || seen.has(normalized)) return
       seen.add(normalized)
       try {
-        const { stdout } = await new Promise<{ stdout: string; stderr: string }>((res) =>
-          exec(`"${exePath}" --version`, { timeout: 3000 }, (err, stdout, stderr) =>
-            res({ stdout: err ? '' : String(stdout), stderr: String(stderr) })
+        const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((res) =>
+          exec(`"${exePath}" --version`, { timeout: 3000 }, (stdout, stderr) =>
+            // Always resolve — some Pythons exit non-zero for --version (py2)
+            res({ stdout: String(stdout || ''), stderr: String(stderr || '') })
           )
         )
-        const version = (stdout || '').trim().replace(/^Python\s*/i, '') || 'unknown'
-        if (version !== 'unknown')
+        // Python ≥ 3.4 prints to stdout; Python 2 and some 3.x print to stderr
+        const raw = stdout.trim() || stderr.trim()
+        const version = raw.replace(/^Python\s*/i, '').trim()
+        // Validate: must look like a version number
+        if (version && /^\d+\.\d+/.test(version))
           results.push({ label: `Python ${version}`, path: exePath.trim() })
       } catch {
         /* skip */
@@ -98,9 +102,10 @@ export function registerConfigHandlers(): void {
 
     const runCmd = async (cmd: string): Promise<string[]> => {
       try {
-        const { stdout } = await new Promise<{ stdout: string; stderr: string }>((res, rej) =>
-          exec(cmd, { timeout: 5000, shell: 'powershell.exe' }, (err, stdout, stderr) =>
-            err ? rej(err) : res({ stdout: String(stdout), stderr: String(stderr) })
+        const stdout = await new Promise<string>((res) =>
+          exec(cmd, { timeout: 5000 }, (_err, out) =>
+            // Always resolve — 'where' exits 1 when nothing found
+            res(String(out || ''))
           )
         )
         return stdout

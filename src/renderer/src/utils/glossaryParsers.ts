@@ -162,11 +162,18 @@ export function hasNestedPaths(entries: GlossaryEntry[]): boolean {
 
 export function parseGlossaryFile(path: string, raw: string): OpenGlossaryFile {
   const name = path.split(/[\\/]/).pop() ?? path
-  const parsed = JSON.parse(raw)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (e) {
+    throw new Error(
+      `ไฟล์ "${name}" มี JSON ที่ไม่ถูกต้อง: ${e instanceof Error ? e.message : String(e)}`
+    )
+  }
 
   // 1. Flat: { "src": "th" }
   if (!Array.isArray(parsed) && typeof parsed === 'object') {
-    const values = Object.values(parsed)
+    const values = Object.values(parsed ?? {})
     if (values.every((v) => typeof v === 'string' || Array.isArray(v))) {
       return {
         path,

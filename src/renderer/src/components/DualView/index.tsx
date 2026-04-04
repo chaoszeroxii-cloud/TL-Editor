@@ -7,6 +7,8 @@ import { TranslatePopup } from './TranslatePopup'
 import { VRowPair } from './VRowPair'
 import { escapeRe } from './findHighlight'
 import type { FindMatch, FindRange } from './findHighlight'
+import { preprocessForTts } from '../../utils/ttsPreprocess'
+import { hideTooltip } from '../common/Tooltip'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,6 +43,7 @@ export interface DualViewProps {
   onCopySrc?: () => void
   onSrcSave?: () => void
   onAddToGlossary?: (text: string) => void
+  onSendToParaphrase?: (text: string) => void
 }
 
 // ─── ColHeader ────────────────────────────────────────────────────────────────
@@ -57,6 +60,13 @@ const ColHeader = memo(function ColHeader({
   style?: React.CSSProperties
 }) {
   const [copied, setCopied] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    },
+    []
+  )
   return (
     <div
       style={{
@@ -96,7 +106,8 @@ const ColHeader = memo(function ColHeader({
           onClick={() => {
             onCopy()
             setCopied(true)
-            setTimeout(() => setCopied(false), 1500)
+            if (timerRef.current) clearTimeout(timerRef.current)
+            timerRef.current = setTimeout(() => setCopied(false), 1500)
           }}
           style={{
             background: 'none',
@@ -138,7 +149,8 @@ export function DualView({
   srcColor = '#5b8af0',
   onCopyTgt,
   onCopySrc,
-  onAddToGlossary
+  onAddToGlossary,
+  onSendToParaphrase
 }: DualViewProps): JSX.Element {
   // ── Split column ────────────────────────────────────────────────────────────
   const [splitPos, setSplitPos] = useState(50)
@@ -169,6 +181,16 @@ export function DualView({
   const [ttsBlobUrl, setTtsBlobUrl] = useState<string | null>(null)
   const [ttsLoading, setTtsLoading] = useState(false)
 
+  // Revoke any outstanding blob URL when the component unmounts
+  useEffect(() => {
+    return () => {
+      setTtsBlobUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+    }
+  }, [])
+
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     const sel = window.getSelection()?.toString().trim()
     if (!sel) return
@@ -185,7 +207,8 @@ export function DualView({
         return null
       })
       try {
-        const base64 = await window.electron.tts(text)
+        const processed = preprocessForTts(text, glossary)
+        const base64 = await window.electron.tts(processed)
         const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
         setTtsBlobUrl(URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' })))
       } catch (e) {
@@ -194,7 +217,7 @@ export function DualView({
         setTtsLoading(false)
       }
     },
-    [ttsLoading]
+    [ttsLoading, glossary]
   )
 
   // ── Row editing ─────────────────────────────────────────────────────────────
@@ -593,6 +616,7 @@ export function DualView({
                 isEditing={editingRow === i}
                 editingCol={editingRow === i ? editingCol : 'tgt'}
                 onStartEdit={(idx, col) => {
+                  hideTooltip() // ปิด tooltip ทันที
                   setEditingRow(idx)
                   setEditingCol(col)
                 }}
@@ -633,6 +657,7 @@ export function DualView({
           onTranslate={(text, x, y) => setTranslatePopup({ selectedText: text, x, y })}
           onTts={handleTts}
           onAddToGlossary={onAddToGlossary}
+          onSendToParaphrase={onSendToParaphrase}
           onClose={() => setCtxMenu(null)}
         />
       )}

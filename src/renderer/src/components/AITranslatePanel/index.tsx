@@ -1,9 +1,21 @@
+// ─── AITranslatePanel/index.tsx ──────────────────────────────────────────────
+// เพิ่ม tab "เกลา" และ prop onPushParaphrase สำหรับ find-replace ใน TGT
+
 import { useState, useCallback, useRef, useEffect, JSX } from 'react'
 import type { GlossaryEntry } from '../../types'
 import { extractNewEntries } from './extractNewEntries'
 import type { PendingEntry } from './extractNewEntries'
 import { NewEntryReview } from './NewEntryReview'
+import { ParaphraseTab } from './ParaphraseTab'
 import { IcoSparkle, IcoFile, IcoKey, IcoX } from '../common/icons'
+
+interface OpenRouterResponse {
+  choices: {
+    message: {
+      content: string
+    }
+  }[]
+}
 
 export interface AITranslateConfig {
   apiKey: string
@@ -20,7 +32,31 @@ interface AITranslatePanelProps {
   sourceFilePaths?: Record<string, string>
   onAddEntries?: (entries: GlossaryEntry[], targetFile: string) => void
   stylePromptSnippet?: string
+  /**
+   * Called by the Paraphrase tab when user clicks → TGT.
+   * Receives (originalInput, paraphrasedResult).
+   * The parent (App.tsx) should replace originalInput with paraphrasedResult
+   * inside the current TGT content (find-replace), NOT replace everything.
+   *
+   * Suggested App.tsx handler:
+   *   const handlePushParaphrase = useCallback((orig: string, result: string) => {
+   *     const cur = files.tgtContentRef.current
+   *     const idx = cur.indexOf(orig)
+   *     if (idx !== -1) {
+   *       files.handleTgtChange(cur.slice(0, idx) + result + cur.slice(idx + orig.length))
+   *     } else {
+   *       // fallback: replace all if exact match not found
+   *       files.handleTgtChange(result)
+   *     }
+   *   }, [files])
+   */
+  onPushParaphrase?: (original: string, result: string) => void
+  /** ข้อความที่ส่งมาจาก context menu "ส่งไป Paraphrase" */
+  paraphraseInput?: string | null
+  onParaphraseInputConsumed?: () => void
 }
+
+type PanelTab = 'translate' | 'paraphrase'
 
 const BASE_TYPES = ['person', 'place', 'term', 'other']
 
@@ -32,8 +68,14 @@ export function AITranslatePanel({
   glossary = [],
   sourceFilePaths = {},
   onAddEntries,
-  stylePromptSnippet = ''
+  stylePromptSnippet = '',
+  onPushParaphrase,
+  paraphraseInput,
+  onParaphraseInputConsumed
 }: AITranslatePanelProps): JSX.Element {
+  const [activeTab, setActiveTab] = useState<PanelTab>('translate')
+
+  // ── Translate tab state ─────────────────────────────────────────────────────
   const [apiKey, setApiKey] = useState(savedConfig.apiKey)
   const [promptPath, setPromptPath] = useState(savedConfig.promptPath)
   const [glossaryPath, setGlossaryPath] = useState(savedConfig.glossaryPath)
@@ -46,6 +88,8 @@ export function AITranslatePanel({
   const [showEntries, setShowEntries] = useState(false)
   const [addTargetFile, setAddTargetFile] = useState('')
   const [addDone, setAddDone] = useState(false)
+  const [rawTranslated, setRawTranslated] = useState<string | null>(null)
+  const [showRaw, setShowRaw] = useState(false)
 
   const fileNames = Object.keys(sourceFilePaths)
   const availableTypes = [
@@ -55,6 +99,14 @@ export function AITranslatePanel({
   useEffect(() => {
     onConfigChange({ apiKey, promptPath, glossaryPath })
   }, [apiKey, promptPath, glossaryPath]) // eslint-disable-line
+
+  // เมื่อได้รับข้อความจาก context menu → switch ไปที่ tab paraphrase
+  useEffect(() => {
+    if (paraphraseInput) {
+      setActiveTab('paraphrase')
+      onParaphraseInputConsumed?.()
+    }
+  }, [paraphraseInput]) // eslint-disable-line
 
   const browsePrompt = async (): Promise<void> => {
     const p = await window.electron.openFile([{ name: 'Text / Prompt', extensions: ['txt', 'md'] }])
@@ -73,6 +125,8 @@ export function AITranslatePanel({
     setPendingEntries([])
     setAddDone(false)
     setShowEntries(false)
+    setRawTranslated(null)
+    setShowRaw(false)
 
     try {
       let prompt = 'แปลนิยายตอนนี้จาก [ภาษาต้นทาง] เป็น [ภาษาไทย]'
@@ -103,7 +157,7 @@ export function AITranslatePanel({
 
       setStatusMsg('กำลังส่งไป DeepSeek…')
 
-      const rawJson = await (window.electron as any).openrouterChat({
+      const rawJson = await window.electron.openrouterChat({
         apiKey: apiKey.trim(),
         model: 'deepseek/deepseek-v3.2',
         messages: [
@@ -112,11 +166,17 @@ export function AITranslatePanel({
         ]
       })
 
-      const data = JSON.parse(rawJson)
-      const translated: string = data.choices?.[0]?.message?.content ?? ''
+      let data: unknown
+      try {
+        data = JSON.parse(rawJson)
+      } catch {
+        throw new Error(`OpenRouter ส่งข้อมูลที่ parse ไม่ได้: ${String(rawJson).slice(0, 120)}`)
+      }
+      const translated: string = (data as OpenRouterResponse).choices?.[0]?.message?.content ?? ''
       if (!translated) throw new Error('ไม่ได้รับข้อความตอบกลับ')
 
       const { cleaned, entries } = extractNewEntries(translated)
+      setRawTranslated(translated)
       setStatus('done')
       setStatusMsg(
         `แปลสำเร็จ — ${cleaned.split('\n').length} บรรทัด${entries.length > 0 ? ` · ✨ ${entries.length} entries ใหม่` : ''}`
@@ -137,7 +197,7 @@ export function AITranslatePanel({
       setStatus('error')
       setStatusMsg(String(e))
     }
-  }, [apiKey, promptPath, glossaryPath, srcContent, onResult, fileNames])
+  }, [apiKey, promptPath, glossaryPath, srcContent, onResult, fileNames, stylePromptSnippet])
 
   const handleAddSelected = useCallback((): void => {
     const selected = pendingEntries.filter((e) => e.selected)
@@ -156,8 +216,29 @@ export function AITranslatePanel({
 
   const canTranslate = !!(apiKey.trim() && srcContent.trim() && status !== 'loading')
 
+  const tabStyle = (t: PanelTab): React.CSSProperties => ({
+    flex: 1,
+    padding: '6px 0',
+    background: 'none',
+    border: 'none',
+    borderBottom: activeTab === t ? '2px solid var(--accent)' : '2px solid transparent',
+    color: activeTab === t ? 'var(--accent)' : 'var(--text2)',
+    fontSize: 10,
+    fontFamily: 'var(--font-mono)',
+    letterSpacing: '0.05em',
+    cursor: 'pointer',
+    fontWeight: activeTab === t ? 600 : 400,
+    marginBottom: -1,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    transition: 'color 0.1s'
+  })
+
   return (
     <div style={s.panel}>
+      {/* Header */}
       <div style={s.header}>
         <span style={s.headerIcon}>
           <IcoSparkle size={13} stroke="currentColor" />
@@ -166,163 +247,297 @@ export function AITranslatePanel({
         <span style={s.model}>deepseek-v3.2·OpenRouter</span>
       </div>
 
+      {/* Tab switcher */}
+      <div
+        style={{
+          display: 'flex',
+          background: 'var(--bg2)',
+          borderBottom: '1px solid var(--border)',
+          padding: '0 10px',
+          flexShrink: 0
+        }}
+      >
+        <button style={tabStyle('translate')} onClick={() => setActiveTab('translate')}>
+          <IcoSparkle size={10} stroke="currentColor" /> แปล
+        </button>
+        <button style={tabStyle('paraphrase')} onClick={() => setActiveTab('paraphrase')}>
+          ✦ เกลา
+        </button>
+      </div>
+
+      {/* Body */}
       <div style={s.body}>
-        {/* API Key */}
-        <div style={s.field}>
-          <label style={s.label}>
-            <IcoKey size={12} stroke="currentColor" /> API Key
-          </label>
-          <div style={s.inputRow}>
-            <input
-              type={showKey ? 'text' : 'password'}
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-or-v1-…"
-              spellCheck={false}
-              style={{ ...s.input, fontFamily: showKey ? 'var(--font-mono)' : undefined }}
-            />
-            <button onClick={() => setShowKey((v) => !v)} style={s.toggleBtn}>
-              {showKey ? '●' : '○'}
-            </button>
-          </div>
-        </div>
-
-        {/* Prompt file */}
-        <div style={s.field}>
-          <label style={s.label}>
-            <IcoFile size={12} stroke="currentColor" /> Prompt file
-          </label>
-          <div style={s.inputRow}>
-            <div style={s.pathChip} title={promptPath}>
-              {promptPath ? (
-                promptPath.split(/[\\/]/).pop()
-              ) : (
-                <span style={{ color: 'var(--text2)' }}>ใช้ default prompt</span>
-              )}
+        {/* ════════════ TRANSLATE TAB ════════════ */}
+        {activeTab === 'translate' && (
+          <>
+            <div style={s.field}>
+              <label style={s.label}>
+                <IcoKey size={12} stroke="currentColor" /> API Key
+              </label>
+              <div style={s.inputRow}>
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="sk-or-v1-…"
+                  spellCheck={false}
+                  style={{ ...s.input, fontFamily: showKey ? 'var(--font-mono)' : undefined }}
+                />
+                <button onClick={() => setShowKey((v) => !v)} style={s.toggleBtn}>
+                  {showKey ? '●' : '○'}
+                </button>
+              </div>
             </div>
-            <button onClick={browsePrompt} style={s.browseBtn}>
-              Browse…
-            </button>
-            {promptPath && (
-              <button onClick={() => setPromptPath('')} style={s.clearBtn}>
-                <IcoX size={10} stroke="currentColor" />
-              </button>
-            )}
-          </div>
-        </div>
 
-        {/* Glossary file */}
-        <div style={s.field}>
-          <label style={s.label}>
-            <IcoFile size={12} stroke="currentColor" /> Glossary JSON
-          </label>
-          <div style={s.inputRow}>
-            <div style={s.pathChip} title={glossaryPath}>
-              {glossaryPath ? (
-                glossaryPath.split(/[\\/]/).pop()
-              ) : (
-                <span style={{ color: 'var(--text2)' }}>ไม่มี glossary</span>
-              )}
+            <div style={s.field}>
+              <label style={s.label}>
+                <IcoFile size={12} stroke="currentColor" /> Prompt file
+              </label>
+              <div style={s.inputRow}>
+                <div style={s.pathChip} title={promptPath}>
+                  {promptPath ? (
+                    promptPath.split(/[\\/]/).pop()
+                  ) : (
+                    <span style={{ color: 'var(--text2)' }}>ใช้ default prompt</span>
+                  )}
+                </div>
+                <button onClick={browsePrompt} style={s.browseBtn}>
+                  Browse…
+                </button>
+                {promptPath && (
+                  <button onClick={() => setPromptPath('')} style={s.clearBtn}>
+                    <IcoX size={10} stroke="currentColor" />
+                  </button>
+                )}
+              </div>
             </div>
-            <button onClick={browseGlossary} style={s.browseBtn}>
-              Browse…
-            </button>
-            {glossaryPath && (
-              <button onClick={() => setGlossaryPath('')} style={s.clearBtn}>
-                <IcoX size={10} stroke="currentColor" />
-              </button>
-            )}
-          </div>
-        </div>
 
-        {/* Status */}
-        {statusMsg && (
-          <div
-            style={{
-              ...s.statusBar,
-              background:
-                status === 'error'
-                  ? 'rgba(240,122,106,0.1)'
-                  : status === 'done'
-                    ? 'rgba(62,207,160,0.1)'
-                    : 'var(--bg3)',
-              borderColor:
-                status === 'error'
-                  ? 'rgba(240,122,106,0.3)'
-                  : status === 'done'
-                    ? 'rgba(62,207,160,0.3)'
-                    : 'var(--border)',
-              color:
-                status === 'error'
-                  ? 'var(--hl-coral)'
-                  : status === 'done'
-                    ? 'var(--hl-teal)'
-                    : 'var(--text2)'
-            }}
-          >
-            {status === 'loading' && (
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }}
+            <div style={s.field}>
+              <label style={s.label}>
+                <IcoFile size={12} stroke="currentColor" /> Glossary JSON
+              </label>
+              <div style={s.inputRow}>
+                <div style={s.pathChip} title={glossaryPath}>
+                  {glossaryPath ? (
+                    glossaryPath.split(/[\\/]/).pop()
+                  ) : (
+                    <span style={{ color: 'var(--text2)' }}>ไม่มี glossary</span>
+                  )}
+                </div>
+                <button onClick={browseGlossary} style={s.browseBtn}>
+                  Browse…
+                </button>
+                {glossaryPath && (
+                  <button onClick={() => setGlossaryPath('')} style={s.clearBtn}>
+                    <IcoX size={10} stroke="currentColor" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {statusMsg && (
+              <div
+                style={{
+                  ...s.statusBar,
+                  background:
+                    status === 'error'
+                      ? 'rgba(240,122,106,0.1)'
+                      : status === 'done'
+                        ? 'rgba(62,207,160,0.1)'
+                        : 'var(--bg3)',
+                  borderColor:
+                    status === 'error'
+                      ? 'rgba(240,122,106,0.3)'
+                      : status === 'done'
+                        ? 'rgba(62,207,160,0.3)'
+                        : 'var(--border)',
+                  color:
+                    status === 'error'
+                      ? 'var(--hl-coral)'
+                      : status === 'done'
+                        ? 'var(--hl-teal)'
+                        : 'var(--text2)'
+                }}
               >
-                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-              </svg>
+                {status === 'loading' && (
+                  <svg
+                    width="11"
+                    height="11"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }}
+                  >
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
+                )}
+                <span style={{ flex: 1 }}>{statusMsg}</span>
+              </div>
             )}
-            <span style={{ flex: 1 }}>{statusMsg}</span>
-          </div>
+
+            <div style={s.btnRow}>
+              {status === 'loading' ? (
+                <button onClick={() => abortRef.current?.abort()} style={s.btnCancel}>
+                  ยกเลิก
+                </button>
+              ) : (
+                <button
+                  onClick={handleTranslate}
+                  disabled={!canTranslate}
+                  style={{
+                    ...s.btnTranslate,
+                    opacity: canTranslate ? 1 : 0.4,
+                    cursor: canTranslate ? 'pointer' : 'not-allowed'
+                  }}
+                >
+                  <IcoSparkle size={12} stroke="currentColor" /> แปลทั้งบท
+                </button>
+              )}
+            </div>
+
+            {rawTranslated && (
+              <div
+                style={{ border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}
+              >
+                <button
+                  onClick={() => setShowRaw((v) => !v)}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 9px',
+                    background: showRaw ? 'var(--bg2)' : 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textAlign: 'left' as const
+                  }}
+                >
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="var(--text2)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  >
+                    <polyline points={showRaw ? '18 15 12 9 6 15' : '6 9 12 15 18 9'} />
+                  </svg>
+                  <span
+                    style={{
+                      fontSize: 9,
+                      color: 'var(--text2)',
+                      fontFamily: 'var(--font-mono)',
+                      letterSpacing: '0.06em',
+                      flex: 1
+                    }}
+                  >
+                    RAW OUTPUT (before clean)
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 9,
+                      fontFamily: 'var(--font-mono)',
+                      color:
+                        rawTranslated.length > rawTranslated.replace(/```[\s\S]*?```/g, '').length
+                          ? 'var(--hl-gold)'
+                          : 'var(--text2)'
+                    }}
+                  >
+                    {rawTranslated.split('\n').length} lines
+                  </span>
+                </button>
+                {showRaw && (
+                  <div
+                    style={{
+                      maxHeight: 180,
+                      overflowY: 'auto',
+                      background: 'var(--bg0)',
+                      borderTop: '1px solid var(--border)',
+                      padding: '8px 9px'
+                    }}
+                  >
+                    <pre
+                      style={{
+                        margin: 0,
+                        fontSize: 10,
+                        fontFamily: 'var(--font-mono)',
+                        color: 'var(--text1)',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word' as const,
+                        lineHeight: 1.6
+                      }}
+                    >
+                      {rawTranslated}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {pendingEntries.length > 0 && (
+              <NewEntryReview
+                pendingEntries={pendingEntries}
+                showEntries={showEntries}
+                addDone={addDone}
+                addTargetFile={addTargetFile}
+                fileNames={fileNames}
+                availableTypes={availableTypes}
+                onToggleShow={() => setShowEntries((v) => !v)}
+                onToggleEntry={(i) =>
+                  setPendingEntries((prev) =>
+                    prev.map((e, j) => (j === i ? { ...e, selected: !e.selected } : e))
+                  )
+                }
+                onSetType={(i, type) =>
+                  setPendingEntries((prev) => prev.map((e, j) => (j === i ? { ...e, type } : e)))
+                }
+                onSetTargetFile={setAddTargetFile}
+                onSelectAll={() =>
+                  setPendingEntries((p) => p.map((e) => ({ ...e, selected: true })))
+                }
+                onSelectNone={() =>
+                  setPendingEntries((p) => p.map((e) => ({ ...e, selected: false })))
+                }
+                onAddSelected={handleAddSelected}
+                canAdd={!!onAddEntries}
+              />
+            )}
+          </>
         )}
 
-        {/* Buttons */}
-        <div style={s.btnRow}>
-          {status === 'loading' ? (
-            <button onClick={() => abortRef.current?.abort()} style={s.btnCancel}>
-              ยกเลิก
-            </button>
-          ) : (
-            <button
-              onClick={handleTranslate}
-              disabled={!canTranslate}
-              style={{
-                ...s.btnTranslate,
-                opacity: canTranslate ? 1 : 0.4,
-                cursor: canTranslate ? 'pointer' : 'not-allowed'
-              }}
-            >
-              <IcoSparkle size={12} stroke="currentColor" /> แปลทั้งบท
-            </button>
-          )}
-        </div>
-
-        {/* New Entry Review */}
-        {pendingEntries.length > 0 && (
-          <NewEntryReview
-            pendingEntries={pendingEntries}
-            showEntries={showEntries}
-            addDone={addDone}
-            addTargetFile={addTargetFile}
-            fileNames={fileNames}
-            availableTypes={availableTypes}
-            onToggleShow={() => setShowEntries((v) => !v)}
-            onToggleEntry={(i) =>
-              setPendingEntries((prev) =>
-                prev.map((e, j) => (j === i ? { ...e, selected: !e.selected } : e))
-              )
-            }
-            onSetType={(i, type) =>
-              setPendingEntries((prev) => prev.map((e, j) => (j === i ? { ...e, type } : e)))
-            }
-            onSetTargetFile={setAddTargetFile}
-            onSelectAll={() => setPendingEntries((p) => p.map((e) => ({ ...e, selected: true })))}
-            onSelectNone={() => setPendingEntries((p) => p.map((e) => ({ ...e, selected: false })))}
-            onAddSelected={handleAddSelected}
-            canAdd={!!onAddEntries}
-          />
+        {/* ════════════ PARAPHRASE TAB ════════════ */}
+        {activeTab === 'paraphrase' && (
+          <>
+            {!apiKey.trim() && (
+              <div
+                style={{
+                  padding: '6px 8px',
+                  background: 'rgba(91,138,240,0.08)',
+                  border: '1px solid rgba(91,138,240,0.25)',
+                  borderRadius: 5,
+                  fontSize: 10,
+                  color: 'var(--accent)',
+                  fontFamily: 'var(--font-mono)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5
+                }}
+              >
+                <span>⚠</span>
+                <span>ใส่ API key ใน tab &quot;แปล&quot; ก่อน</span>
+              </div>
+            )}
+            <ParaphraseTab
+              apiKey={apiKey}
+              stylePromptSnippet={stylePromptSnippet}
+              onPushToTgt={onPushParaphrase}
+              initialInput={paraphraseInput ?? undefined}
+            />
+          </>
         )}
       </div>
 
@@ -330,6 +545,8 @@ export function AITranslatePanel({
     </div>
   )
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s: Record<string, React.CSSProperties> = {
   panel: {

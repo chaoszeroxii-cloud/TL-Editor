@@ -102,8 +102,13 @@ export async function runStyleAnalysis(
     ]
   })
 
-  const data = JSON.parse(rawJson)
-  const content: string = data.choices?.[0]?.message?.content ?? ''
+  let data: unknown
+  try {
+    data = JSON.parse(rawJson)
+  } catch {
+    throw new Error(`OpenRouter ส่งข้อมูลที่ parse ไม่ได้: ${String(rawJson).slice(0, 120)}`)
+  }
+  const content: string = (data as any).choices?.[0]?.message?.content ?? ''
   if (!content) throw new Error('AI ไม่ส่งผลลัพธ์กลับมา')
 
   // Strip markdown fences if present
