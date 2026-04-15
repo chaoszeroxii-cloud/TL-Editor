@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect, JSX } from 'react'
 import { OutputView } from './OutputView'
-import { PythonTab } from './PythonTab'
+import { TTSApiTab } from './TTSApiTab'
+import type { TtsApiConfig } from './TTSApiTab'
 import type { OutputLine } from './OutputView'
-import { IcoTerminal, IcoPython, IcoTrash, IcoStop, IcoClose, IcoChevronUp } from '../common/icons'
+import { IcoTerminal, IcoTrash, IcoStop, IcoClose, IcoChevronUp } from '../common/icons'
+import { loadGlossariesFromConfig, type GlossaryLibraries } from '../../utils/glossaryLoader'
 
-type PanelTab = 'terminal' | 'python'
+type PanelTab = 'terminal' | 'tts'
 
 const btnStyle: React.CSSProperties = {
   background: 'none',
@@ -23,31 +25,64 @@ const btnStyle: React.CSSProperties = {
 interface TerminalPanelProps {
   cwd?: string | null
   onClose: () => void
+  /** TTS API config (from App store) */
+  ttsConfig: TtsApiConfig
+  /** Called when TTS config changes — parent saves to store + electron config */
+  onTtsConfigChange: (cfg: TtsApiConfig) => void
+  /** TGT file path for glossary loading */
+  tgtPath?: string | null
+  /** TGT file content for TTS generation */
+  tgtContent?: string
 }
 
-export function TerminalPanel({ cwd, onClose }: TerminalPanelProps): JSX.Element {
-  const [tab, setTab] = useState<PanelTab>('python')
+export function TerminalPanel({
+  cwd,
+  onClose,
+  ttsConfig,
+  onTtsConfigChange,
+  tgtPath,
+  tgtContent
+}: TerminalPanelProps): JSX.Element {
+  const [tab, setTab] = useState<PanelTab>('tts')
   const [lines, setLines] = useState<OutputLine[]>([])
-  const [pythonLines, setPythonLines] = useState<OutputLine[]>([])
   const [input, setInput] = useState('')
   const [running, setRunning] = useState(false)
-  const [panelH, setPanelH] = useState(220)
+  const [panelH, setPanelH] = useState(280)
+  const [glossaries, setGlossaries] = useState<GlossaryLibraries>({ at_lib: {}, bf_lib: {} })
+  const [glossaryPaths, setGlossaryPaths] = useState<{ atPath?: string; bfPath?: string }>({})
+  const [configJsonPaths, setConfigJsonPaths] = useState<string[]>([])
 
   const outputRef = useRef<HTMLDivElement>(null)
-  const pyOutputRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const historyRef = useRef<string[]>([])
   const histIdxRef = useRef(-1)
   const idRef = useRef(0)
   const nextId = (): number => ++idRef.current
 
-  const curLines = tab === 'terminal' ? lines : pythonLines
-  const curRef = tab === 'terminal' ? outputRef : pyOutputRef
+  // ── Load config on mount ────────────────────────────────────────────────────
+  useEffect(() => {
+    ;(async () => {
+      const cfg = await window.electron.getEnvConfig()
+      setConfigJsonPaths(cfg.jsonPaths || [])
+    })()
+  }, [])
+
+  // ── Load glossaries when tgtPath or config changes ────────────────────────────
+  useEffect(() => {
+    ;(async () => {
+      const { libs, atPath, bfPath } = await loadGlossariesFromConfig(
+        configJsonPaths,
+        tgtPath ?? null
+      )
+      setGlossaries(libs)
+      setGlossaryPaths({ atPath, bfPath })
+    })()
+  }, [tgtPath, configJsonPaths])
 
   useLayoutEffect(() => {
-    const el = curRef.current
+    const el = outputRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [lines, pythonLines, tab, curRef])
+  }, [lines, tab])
 
   useEffect(() => {
     if (tab === 'terminal') inputRef.current?.focus()
@@ -70,7 +105,7 @@ export function TerminalPanel({ cwd, onClose }: TerminalPanelProps): JSX.Element
       if (!dragRef.current) return
       setPanelH(
         Math.max(
-          120,
+          160,
           Math.min(window.innerHeight * 0.7, dragStartH.current + dragStartY.current - e.clientY)
         )
       )
@@ -110,19 +145,22 @@ export function TerminalPanel({ cwd, onClose }: TerminalPanelProps): JSX.Element
   )
 
   useEffect(() => {
-    const onStdout = (_e: unknown, text: string): void => {
+    if (tab !== 'terminal') return
+    const onStdout = (...args: unknown[]): void => {
+      const text = args[1] as string
       if (!running) return
-      appendLines(tab === 'terminal' ? setLines : setPythonLines, 'stdout', text)
+      appendLines(setLines, 'stdout', text)
     }
-    const onStderr = (_e: unknown, text: string): void => {
+    const onStderr = (...args: unknown[]): void => {
+      const text = args[1] as string
       if (!running) return
-      appendLines(tab === 'terminal' ? setLines : setPythonLines, 'stderr', text)
+      appendLines(setLines, 'stderr', text)
     }
-    ;(window.electron as any).on?.('run-command:stdout', onStdout)
-    ;(window.electron as any).on?.('run-command:stderr', onStderr)
+    window.electron.on('run-command:stdout', onStdout)
+    window.electron.on('run-command:stderr', onStderr)
     return () => {
-      ;(window.electron as any).off?.('run-command:stdout', onStdout)
-      ;(window.electron as any).off?.('run-command:stderr', onStderr)
+      window.electron.off('run-command:stdout', onStdout)
+      window.electron.off('run-command:stderr', onStderr)
     }
   }, [running, tab, appendLines])
 
@@ -137,7 +175,7 @@ export function TerminalPanel({ cwd, onClose }: TerminalPanelProps): JSX.Element
       setLines((prev) => [...prev, { id: nextId(), kind: 'cmd', text: cmd, ts: Date.now() }])
       setInput('')
       try {
-        const result = await (window.electron as any).runCommand(cmd, cwd ?? undefined)
+        const result = await window.electron.runCommand(cmd, cwd ?? undefined)
         setLines((prev) => [
           ...prev,
           { id: nextId(), kind: 'exit', text: `exit ${result.exitCode}`, ts: Date.now() }
@@ -179,7 +217,23 @@ export function TerminalPanel({ cwd, onClose }: TerminalPanelProps): JSX.Element
     }
   }
 
-  const curSetter = tab === 'terminal' ? setLines : setPythonLines
+  // ── TTS icon ──────────────────────────────────────────────────────────────
+  const IcoTTS = (): JSX.Element => (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+    </svg>
+  )
 
   return (
     <div
@@ -233,7 +287,7 @@ export function TerminalPanel({ cwd, onClose }: TerminalPanelProps): JSX.Element
         {(
           [
             ['terminal', <IcoTerminal size={12} stroke="currentColor" key="t" />, 'TERMINAL'],
-            ['python', <IcoPython size={12} stroke="currentColor" key="p" />, 'PYTHON']
+            ['tts', <IcoTTS key="tts" />, 'TTS API']
           ] as [PanelTab, JSX.Element, string][]
         ).map(([id, icon, label]) => (
           <button
@@ -275,14 +329,16 @@ export function TerminalPanel({ cwd, onClose }: TerminalPanelProps): JSX.Element
         ))}
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', gap: 2, paddingRight: 8, alignItems: 'center' }}>
-          <button title="Clear output" onClick={() => curSetter([])} style={btnStyle}>
-            <IcoTrash size={12} stroke="currentColor" />
-          </button>
-          {running && (
+          {tab === 'terminal' && (
+            <button title="Clear output" onClick={() => setLines([])} style={btnStyle}>
+              <IcoTrash size={12} stroke="currentColor" />
+            </button>
+          )}
+          {running && tab === 'terminal' && (
             <button
               title="Kill process"
               onClick={() => {
-                ;(window.electron as any).killProcess?.()
+                window.electron.killProcess?.()
                 setRunning(false)
               }}
               style={{ ...btnStyle, color: 'var(--hl-coral)' }}
@@ -309,70 +365,74 @@ export function TerminalPanel({ cwd, onClose }: TerminalPanelProps): JSX.Element
           userSelect: 'text'
         }}
       >
-        <OutputView lines={curLines} outputRef={curRef as React.RefObject<HTMLDivElement>} />
-
-        {/* Terminal input row */}
+        {/* ── Terminal tab ── */}
         {tab === 'terminal' && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '5px 14px 7px',
-              borderTop: '1px solid var(--border)',
-              background: 'var(--bg1)',
-              flexShrink: 0
-            }}
-          >
-            <span
+          <>
+            <OutputView lines={lines} outputRef={outputRef as React.RefObject<HTMLDivElement>} />
+            <div
               style={{
-                color: running ? 'var(--hl-teal)' : 'var(--accent)',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 12,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '5px 14px 7px',
+                borderTop: '1px solid var(--border)',
+                background: 'var(--bg1)',
                 flexShrink: 0
               }}
             >
-              {cwd ? cwd.split(/[\\/]/).pop() : '~'}
-              <span style={{ color: 'var(--hl-gold)', marginLeft: 4 }}>❯</span>
-            </span>
-            <input
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleTerminalKey}
-              disabled={running}
-              placeholder={running ? 'Running…' : 'Enter command…'}
-              spellCheck={false}
-              autoComplete="off"
-              style={{
-                flex: 1,
-                background: 'none',
-                border: 'none',
-                outline: 'none',
-                color: running ? 'var(--text2)' : 'var(--text0)',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 12,
-                padding: 0,
-                cursor: running ? 'not-allowed' : 'text'
-              }}
-            />
-          </div>
+              <span
+                style={{
+                  color: running ? 'var(--hl-teal)' : 'var(--accent)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 12,
+                  flexShrink: 0
+                }}
+              >
+                {cwd ? cwd.split(/[\\/]/).pop() : '~'}
+                <span style={{ color: 'var(--hl-gold)', marginLeft: 4 }}>❯</span>
+              </span>
+              <input
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleTerminalKey}
+                disabled={running}
+                placeholder={running ? 'Running…' : 'Enter command…'}
+                spellCheck={false}
+                autoComplete="off"
+                style={{
+                  flex: 1,
+                  background: 'none',
+                  border: 'none',
+                  outline: 'none',
+                  color: running ? 'var(--text2)' : 'var(--text0)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 12,
+                  padding: 0,
+                  cursor: running ? 'not-allowed' : 'text'
+                }}
+              />
+            </div>
+          </>
         )}
 
-        {/* Python tab */}
-        {tab === 'python' && (
-          <PythonTab
-            cwd={cwd}
-            running={running}
-            setRunning={setRunning}
-            setPythonLines={setPythonLines}
-            nextId={nextId}
-            appendLines={appendLines}
+        {/* ── TTS API tab ── */}
+        {tab === 'tts' && (
+          <TTSApiTab
+            config={ttsConfig}
+            onConfigChange={onTtsConfigChange}
+            glossaries={glossaries}
+            tgtContent={tgtContent}
+            tgtPath={tgtPath}
+            glossaryPaths={glossaryPaths}
           />
         )}
       </div>
 
-      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
+      <style>{`
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
     </div>
   )
 }

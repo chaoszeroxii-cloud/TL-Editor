@@ -1,9 +1,11 @@
 import { useState, useCallback, useRef, Dispatch, SetStateAction, MutableRefObject } from 'react'
 import type { TreeNode, AITranslateConfig } from '../types'
+import type { TtsApiConfig } from '../components/Terminal/TTSApiTab'
+import { DEFAULT_TTS_CONFIG } from '../components/Terminal/ttsConstants'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // useAppStore
-// Manages app-level UI state: folder tree, panel visibility, AI config.
+// Manages app-level UI state: folder tree, panel visibility, AI config, TTS config.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface AppStore {
@@ -40,6 +42,11 @@ export interface AppStore {
   styleProfileOpen: boolean
   setStyleProfileOpen: Dispatch<SetStateAction<boolean>>
   toggleStyleProfile: () => void
+
+  // TTS Config
+  ttsConfig: TtsApiConfig
+  setTtsConfig: Dispatch<SetStateAction<TtsApiConfig>>
+  handleTtsConfigChange: (cfg: TtsApiConfig) => void
 
   // Actions
   refreshTree: () => Promise<void>
@@ -80,7 +87,6 @@ export function useAppStore(): AppStore {
 
   const handleAiConfigChange = useCallback((cfg: AITranslateConfig) => {
     setAiConfig(cfg)
-    // Persist asynchronously — don't block on every keystroke
     window.electron
       .getEnvConfig()
       .then((env) =>
@@ -100,6 +106,35 @@ export function useAppStore(): AppStore {
 
   const [styleProfileOpen, setStyleProfileOpen] = useState(false)
   const toggleStyleProfile = useCallback(() => setStyleProfileOpen((v) => !v), [])
+
+  // ── TTS config ────────────────────────────────────────────────────────────
+  const [ttsConfig, setTtsConfig] = useState<TtsApiConfig>(DEFAULT_TTS_CONFIG)
+
+  const handleTtsConfigChange = useCallback((cfg: TtsApiConfig) => {
+    setTtsConfig(cfg)
+    // Persist asynchronously
+    window.electron
+      .getEnvConfig()
+      .then((env) =>
+        window.electron.saveConfig({
+          folderPath: env.folderPath,
+          jsonPaths: env.jsonPaths,
+          pythonExe: env.pythonExe ?? undefined,
+          pythonScript: env.pythonScript ?? undefined,
+          pythonCwd: env.pythonCwd ?? undefined,
+          aiApiKey: env.aiApiKey,
+          aiPromptPath: env.aiPromptPath,
+          aiGlossaryPath: env.aiGlossaryPath,
+          ttsApiUrl: cfg.apiUrl,
+          ttsApiKey: cfg.apiKey,
+          ttsVoiceGender: cfg.voiceGender,
+          ttsVoiceName: cfg.voiceName,
+          ttsRate: cfg.rate,
+          ttsOutputPath: cfg.outputPath
+        })
+      )
+      .catch(() => {})
+  }, [])
 
   // ── Tree refresh ──────────────────────────────────────────────────────────
   const refreshTree = useCallback(async () => {
@@ -140,6 +175,11 @@ export function useAppStore(): AppStore {
     styleProfileOpen,
     setStyleProfileOpen,
     toggleStyleProfile,
+
+    // tts config
+    ttsConfig,
+    setTtsConfig,
+    handleTtsConfigChange,
 
     // actions
     refreshTree

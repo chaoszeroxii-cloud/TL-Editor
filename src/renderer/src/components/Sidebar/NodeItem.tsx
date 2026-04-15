@@ -1,6 +1,6 @@
 import { memo, useState, useContext, JSX } from 'react'
 import type { TreeNode } from '../../types'
-import { DndCtx } from './index'
+import { DndCtx } from './DndContext'
 import {
   IcoFolder,
   IcoFolderOpen,

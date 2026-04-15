@@ -124,7 +124,7 @@ export function SetupWizard({ onDone }: SetupWizardProps): JSX.Element {
     setDetecting(true)
     setDetectedPythons(null)
     try {
-      const list = await (window.electron as any).detectPython()
+      const list = await window.electron.detectPython()
       setDetectedPythons(list)
     } finally {
       setDetecting(false)
@@ -148,7 +148,7 @@ export function SetupWizard({ onDone }: SetupWizardProps): JSX.Element {
     setPipLog('')
     try {
       const pkgs = REQUIRED_PACKAGES.join(' ')
-      const result = await (window.electron as any).runCommand(
+      const result = await window.electron.runCommand(
         `"${exePath}" -m pip install --upgrade ${pkgs}`,
         undefined
       )

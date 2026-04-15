@@ -159,7 +159,7 @@ export function ScriptPathInput({
                         whiteSpace: 'nowrap'
                       }}
                     >
-                      {p.split(/[\/\\]/).pop()}
+                      {p.split(/[/\\]/).pop()}
                     </span>
                     <span
                       style={{

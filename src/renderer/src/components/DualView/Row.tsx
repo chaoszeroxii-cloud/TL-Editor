@@ -1,7 +1,7 @@
 import { memo, useRef, useEffect, useLayoutEffect, useMemo, JSX } from 'react'
 import type { GlossaryEntry } from '../../types'
 import { tokenize, HL_COLORS } from '../../utils/highlight'
-import { showTooltip, hideTooltip } from '../common/Tooltip'
+import { showTooltip, hideTooltip } from '../common/tooltipUtils'
 import { buildRenderSegs } from './findHighlight'
 import type { FindRange, FindSeg } from './findHighlight'
 
@@ -190,7 +190,7 @@ export const Row = memo(function Row({
       ta.setSelectionRange(pos, pos)
     }
     ta.dataset.prev = ta.value
-  }, [isEditing, focusAtStart, navCol, navDir])
+  }, [isEditing, focusAtStart, navCol, navDir, pendingCursor])
 
   const getColOffset = (ta: HTMLTextAreaElement): number => {
     const before = ta.value.slice(0, ta.selectionStart)

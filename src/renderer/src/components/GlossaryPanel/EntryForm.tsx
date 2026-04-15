@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect, JSX } from 'react'
 import type { GlossaryEntry, GlossaryFileFormat } from '../../types'
-import { CascadingPathSelect, buildPathTree, PathTree } from './CascadingPathSelect'
+import { CascadingPathSelect } from './CascadingPathSelect'
+import { buildPathTree, type PathTree } from './CascadingPathSelect.utils'
 
 // ─── FileSelect ───────────────────────────────────────────────────────────────
 // Custom styled file-selector dropdown used inside EntryForm.

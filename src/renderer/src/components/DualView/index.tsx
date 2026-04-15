@@ -7,8 +7,9 @@ import { TranslatePopup } from './TranslatePopup'
 import { VRowPair } from './VRowPair'
 import { escapeRe } from './findHighlight'
 import type { FindMatch, FindRange } from './findHighlight'
-import { preprocessForTts } from '../../utils/ttsPreprocess'
-import { hideTooltip } from '../common/Tooltip'
+import { filterUsedGlossariesFromRecord, preprocessForTts } from '../../utils/ttsPreprocess'
+import { hideTooltip } from '../common/tooltipUtils'
+import type { GlossaryLibraries } from '../../utils/glossaryLoader'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,16 @@ export interface DualViewProps {
   onSrcSave?: () => void
   onAddToGlossary?: (text: string) => void
   onSendToParaphrase?: (text: string) => void
+  ttsConfig?: {
+    apiUrl?: string
+    apiKey?: string
+    voiceGender?: string
+    voiceName?: string
+    rate?: string
+    outputPath?: string
+  }
+  ttsGlossaries?: GlossaryLibraries
+  onSaveTtsAudio?: (base64: string, defaultName: string) => Promise<void>
 }
 
 // ─── ColHeader ────────────────────────────────────────────────────────────────
@@ -150,7 +161,10 @@ export function DualView({
   onCopyTgt,
   onCopySrc,
   onAddToGlossary,
-  onSendToParaphrase
+  onSendToParaphrase,
+  ttsConfig,
+  ttsGlossaries,
+  onSaveTtsAudio
 }: DualViewProps): JSX.Element {
   // ── Split column ────────────────────────────────────────────────────────────
   const [splitPos, setSplitPos] = useState(50)
@@ -180,6 +194,7 @@ export function DualView({
   const [translatePopup, setTranslatePopup] = useState<TranslatePopupState | null>(null)
   const [ttsBlobUrl, setTtsBlobUrl] = useState<string | null>(null)
   const [ttsLoading, setTtsLoading] = useState(false)
+  const [ttsBytes, setTtsBytes] = useState<string | null>(null)
 
   // Revoke any outstanding blob URL when the component unmounts
   useEffect(() => {
@@ -188,6 +203,7 @@ export function DualView({
         if (prev) URL.revokeObjectURL(prev)
         return null
       })
+      setTtsBytes(null)
     }
   }, [])
 
@@ -206,18 +222,30 @@ export function DualView({
         if (prev) URL.revokeObjectURL(prev)
         return null
       })
+      setTtsBytes(null)
       try {
         const processed = preprocessForTts(text, glossary)
-        const base64 = await window.electron.tts(processed)
+        const filteredBfLib = filterUsedGlossariesFromRecord(text, ttsGlossaries?.bf_lib)
+        const filteredAtLib = filterUsedGlossariesFromRecord(text, ttsGlossaries?.at_lib)
+        const base64 = await window.electron.tts(processed, {
+          apiUrl: ttsConfig?.apiUrl,
+          apiKey: ttsConfig?.apiKey,
+          voiceGender: ttsConfig?.voiceGender,
+          voiceName: ttsConfig?.voiceName || undefined,
+          rate: ttsConfig?.rate,
+          bf_lib: filteredBfLib,
+          at_lib: filteredAtLib
+        })
         const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
         setTtsBlobUrl(URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' })))
+        setTtsBytes(base64)
       } catch (e) {
         console.error('TTS failed:', e)
       } finally {
         setTtsLoading(false)
       }
     },
-    [ttsLoading, glossary]
+    [ttsLoading, glossary, ttsConfig, ttsGlossaries]
   )
 
   // ── Row editing ─────────────────────────────────────────────────────────────
@@ -712,22 +740,55 @@ export function DualView({
             zIndex: 9000,
             boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
             borderRadius: 8,
-            overflow: 'hidden',
-            width: 380
+            overflow: 'visible',
+            width: 380,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4
           }}
         >
-          <AudioPlayer
-            key={ttsBlobUrl}
-            filePath={ttsBlobUrl}
-            autoPlay
-            compact
-            onClose={() =>
-              setTtsBlobUrl((prev) => {
-                if (prev) URL.revokeObjectURL(prev)
-                return null
-              })
-            }
-          />
+          {/* 💾 Save MP3 button — appears above the audio player */}
+          {ttsBytes && onSaveTtsAudio && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => {
+                  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+                  onSaveTtsAudio(ttsBytes, `tts_${ts}.mp3`)
+                }}
+                style={{
+                  background: 'var(--bg2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 5,
+                  padding: '3px 11px',
+                  color: 'var(--text1)',
+                  fontSize: 10,
+                  fontFamily: 'var(--font-mono)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.4)'
+                }}
+              >
+                💾 Save MP3
+              </button>
+            </div>
+          )}
+          {/* Audio player */}
+          <div style={{ borderRadius: 8, overflow: 'hidden' }}>
+            <AudioPlayer
+              key={ttsBlobUrl}
+              filePath={ttsBlobUrl}
+              autoPlay
+              compact
+              onClose={() =>
+                setTtsBlobUrl((prev) => {
+                  if (prev) URL.revokeObjectURL(prev)
+                  return null
+                })
+              }
+            />
+          </div>
         </div>
       )}
     </div>

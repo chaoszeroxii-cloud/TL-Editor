@@ -54,6 +54,65 @@ function buildReplacementMap(glossary: GlossaryEntry[]): Map<string, string> {
   return map
 }
 
+// ── Filter glossaries to only used entries ───────────────────────────────────
+
+/**
+ * Filters glossary record to only include entries actually found in the text.
+ * Works with Record<string, string> where keys are source terms.
+ * Returns empty object if text is empty or no entries are found.
+ */
+export function filterUsedGlossariesFromRecord(
+  text: string,
+  glossaryRecord: Record<string, string> | undefined
+): Record<string, string> {
+  if (!text.trim() || !glossaryRecord) return {}
+
+  const result: Record<string, string> = {}
+
+  for (const [src, translation] of Object.entries(glossaryRecord)) {
+    if (src.trim() && text.includes(src)) {
+      result[src] = translation
+    }
+  }
+
+  return result
+}
+
+/**
+ * Filters glossary library entries to only include entries actually found in the text.
+ * Returns empty object if text is empty or no entries are found.
+ */
+export function filterUsedGlossaries(
+  text: string,
+  glossaryEntries: GlossaryEntry[]
+): Record<string, string> {
+  if (!text.trim() || !glossaryEntries.length) return {}
+
+  const result: Record<string, string> = {}
+
+  for (const entry of glossaryEntries) {
+    const src = entry.src?.trim()
+    if (!src) continue
+
+    // Check if src is found in text (case-sensitive for Thai/mixed content)
+    if (text.includes(src)) {
+      let replacement: string
+
+      if (isPhoneticNote(entry.note)) {
+        replacement = entry.note!.trim()
+      } else if (entry.th && entry.th.trim()) {
+        replacement = entry.th.trim()
+      } else {
+        continue
+      }
+
+      result[src] = replacement
+    }
+  }
+
+  return result
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 /**

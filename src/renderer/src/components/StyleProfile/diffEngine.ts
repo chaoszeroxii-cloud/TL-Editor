@@ -50,7 +50,7 @@ export function similarity(a: string, b: string): number {
 function tokenize(text: string): string[] {
   // Split on whitespace + punctuation boundaries; keep Thai chars together
   return text
-    .split(/[\s,.'"""'''!?;:()\[\]{}\-–—]+/)
+    .split(/[\s,.'"""'''!?;:()[\]{}\-–—]+/)
     .map((w) => w.trim())
     .filter(Boolean)
 }
