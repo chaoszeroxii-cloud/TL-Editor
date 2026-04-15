@@ -46,6 +46,15 @@ export function registerFsHandlers(): void {
 
   ipcMain.handle('fs:readFile', (_e, filePath: string) => readFile(filePath, 'utf-8'))
 
+  ipcMain.handle('fs:readFileOptional', async (_e, filePath: string) => {
+    try {
+      return await readFile(filePath, 'utf-8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw error
+    }
+  })
+
   ipcMain.handle('fs:readAudioBuffer', async (_e, filePath: string) => {
     const buf = await readFile(filePath)
     return buf.toString('base64')

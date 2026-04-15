@@ -1,22 +1,9 @@
-import { memo, useRef, useEffect, createContext, JSX } from 'react'
+import { memo, useRef, useEffect, JSX } from 'react'
 import type { TreeNode } from '../../types'
+import { DndCtx } from './DndContext'
 import { useDragDrop } from './useDragDrop'
 import { NodeItem } from './NodeItem'
 import { IcoFolderOpen, IcoBook, IcoFilePlus, IcoSpinner, IcoGrid } from '../common/icons'
-
-// ─── DnD context (shared with NodeItem) ──────────────────────────────────────
-
-interface DndCtxVal {
-  draggingPath: string | null
-  drop: import('./useDragDrop').DropInfo | null
-  onItemMouseDown: (e: React.MouseEvent, node: TreeNode, clickFn: () => void) => void
-}
-
-export const DndCtx = createContext<DndCtxVal>({
-  draggingPath: null,
-  drop: null,
-  onItemMouseDown: () => {}
-})
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 

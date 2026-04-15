@@ -89,7 +89,7 @@ export async function runStyleAnalysis(
   const prompt = buildAnalysisPrompt(corrections)
 
   // Call via Electron IPC (same pattern as AITranslatePanel)
-  const rawJson = await (window.electron as any).openrouterChat({
+  const rawJson = await window.electron.openrouterChat({
     apiKey,
     model,
     messages: [
@@ -108,7 +108,7 @@ export async function runStyleAnalysis(
   } catch {
     throw new Error(`OpenRouter ส่งข้อมูลที่ parse ไม่ได้: ${String(rawJson).slice(0, 120)}`)
   }
-  const content: string = (data as any).choices?.[0]?.message?.content ?? ''
+  const content: string = (data as Record<string, unknown>).choices?.[0]?.message?.content ?? ''
   if (!content) throw new Error('AI ไม่ส่งผลลัพธ์กลับมา')
 
   // Strip markdown fences if present

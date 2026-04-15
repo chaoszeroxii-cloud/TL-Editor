@@ -16,11 +16,16 @@ export interface AppConfig {
   aiApiKey?: string
   aiPromptPath?: string
   aiGlossaryPath?: string
+  // TTS API config
+  ttsApiUrl?: string
+  ttsApiKey?: string
+  ttsVoiceGender?: string
+  ttsVoiceName?: string
+  ttsRate?: string
+  ttsOutputPath?: string
 }
 
 // ─── Config path ──────────────────────────────────────────────────────────────
-// Dev  → userData (survives app reinstall)
-// Prod → userData (safe — installer never touches AppData\Roaming)
 
 export function getConfigPath(): string {
   return path.join(app.getPath('userData'), 'config.json')
@@ -66,7 +71,14 @@ export function registerConfigHandlers(): void {
       hasConfig: existsSync(getConfigPath()),
       aiApiKey: cfg.aiApiKey ?? '',
       aiPromptPath: cfg.aiPromptPath ?? '',
-      aiGlossaryPath: cfg.aiGlossaryPath ?? ''
+      aiGlossaryPath: cfg.aiGlossaryPath ?? '',
+      // TTS fields
+      ttsApiUrl: cfg.ttsApiUrl ?? 'https://novelttsapi.onrender.com',
+      ttsApiKey: cfg.ttsApiKey ?? '',
+      ttsVoiceGender: cfg.ttsVoiceGender ?? 'Female',
+      ttsVoiceName: cfg.ttsVoiceName ?? '',
+      ttsRate: cfg.ttsRate ?? '+35%',
+      ttsOutputPath: cfg.ttsOutputPath ?? ''
     }
   })
 
@@ -85,14 +97,11 @@ export function registerConfigHandlers(): void {
       try {
         const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((res) =>
           exec(`"${exePath}" --version`, { timeout: 3000 }, (stdout, stderr) =>
-            // Always resolve — some Pythons exit non-zero for --version (py2)
             res({ stdout: String(stdout || ''), stderr: String(stderr || '') })
           )
         )
-        // Python ≥ 3.4 prints to stdout; Python 2 and some 3.x print to stderr
         const raw = stdout.trim() || stderr.trim()
         const version = raw.replace(/^Python\s*/i, '').trim()
-        // Validate: must look like a version number
         if (version && /^\d+\.\d+/.test(version))
           results.push({ label: `Python ${version}`, path: exePath.trim() })
       } catch {
@@ -103,10 +112,7 @@ export function registerConfigHandlers(): void {
     const runCmd = async (cmd: string): Promise<string[]> => {
       try {
         const stdout = await new Promise<string>((res) =>
-          exec(cmd, { timeout: 5000 }, (_err, out) =>
-            // Always resolve — 'where' exits 1 when nothing found
-            res(String(out || ''))
-          )
+          exec(cmd, { timeout: 5000 }, (_err, out) => res(String(out || '')))
         )
         return stdout
           .split('\n')

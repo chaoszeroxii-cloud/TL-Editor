@@ -1,6 +1,7 @@
 import { JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { GlossaryEntry } from '../../types'
 import { HL_COLORS } from '../../utils/highlight'
+import { editGlossaryEntry } from './tooltipUtils'
 
 interface TooltipState {
   entry: GlossaryEntry
@@ -8,35 +9,17 @@ interface TooltipState {
   y: number
 }
 
-// Stable module-level functions — no hook needed, no new fn on every render
-let _hoveredEntry: GlossaryEntry | null = null
-export function getHoveredGlossaryEntry(): GlossaryEntry | null {
-  return _hoveredEntry
-}
-
-export function showTooltip(entry: GlossaryEntry, x: number, y: number): void {
-  _hoveredEntry = entry
-  window.dispatchEvent(new CustomEvent('hl:show', { detail: { entry, x, y } }))
-}
-export function hideTooltip(): void {
-  _hoveredEntry = null
-  window.dispatchEvent(new CustomEvent('hl:hide'))
-}
-/** Dispatch เพื่อเปิด edit form ของ entry นี้ใน GlossaryPanel */
-export function editGlossaryEntry(entry: GlossaryEntry): void {
-  window.dispatchEvent(new CustomEvent('hl:edit', { detail: entry }))
-}
-
 export function Tooltip(): JSX.Element | null {
   const [state, setState] = useState<TooltipState | null>(null)
   // pinned = tooltip ถูก "จับ" ไว้ด้วย hover ทำให้ pointerEvents เปิด
   const [pinned, setPinned] = useState(false)
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
   const ref = useRef<HTMLDivElement>(null)
-  const rafId = useRef<number | null>(null)
   const stateRef = useRef(state)
   const pinnedRef = useRef(false)
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const positionRef = useRef<{ x: number; y: number } | null>(null)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     stateRef.current = state
@@ -66,6 +49,8 @@ export function Tooltip(): JSX.Element | null {
   useEffect(() => {
     const onShow = (e: Event): void => {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+      setCopyStatus('idle')
 
       const detail = (e as CustomEvent).detail as TooltipState
 
@@ -96,8 +81,8 @@ export function Tooltip(): JSX.Element | null {
     return () => {
       window.removeEventListener('hl:show', onShow)
       window.removeEventListener('hl:hide', onHide)
-      if (rafId.current !== null) cancelAnimationFrame(rafId.current)
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
     }
   }, [])
 
@@ -105,6 +90,20 @@ export function Tooltip(): JSX.Element | null {
 
   const { entry } = state
   const colors = HL_COLORS[entry.type]
+  const copyLabel =
+    copyStatus === 'copied' ? 'คัดลอกแล้ว' : copyStatus === 'error' ? 'คัดลอกไม่ได้' : 'คัดลอก'
+
+  const handleCopy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(entry.th)
+      setCopyStatus('copied')
+    } catch {
+      setCopyStatus('error')
+    }
+
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+    copyTimerRef.current = setTimeout(() => setCopyStatus('idle'), 1400)
+  }
 
   return (
     <div
@@ -176,7 +175,53 @@ export function Tooltip(): JSX.Element | null {
           {entry.type}
         </span>
 
-        {/* ── Edit button ── */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            void handleCopy()
+          }}
+          title="คัดลอกคำแปล"
+          style={{
+            marginLeft: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 3,
+            background: copyStatus === 'copied' ? 'rgba(62,207,160,0.12)' : 'none',
+            border: '1px solid var(--border)',
+            borderRadius: 4,
+            color:
+              copyStatus === 'copied'
+                ? 'var(--hl-teal)'
+                : copyStatus === 'error'
+                  ? 'var(--hl-coral)'
+                  : 'var(--text2)',
+            fontSize: 10,
+            fontFamily: 'var(--font-mono)',
+            padding: '2px 7px',
+            cursor: 'pointer',
+            transition: 'all 0.1s'
+          }}
+          onMouseEnter={(e) => {
+            if (copyStatus === 'copied') return
+            e.currentTarget.style.background = 'var(--accent-dim)'
+            e.currentTarget.style.color = 'var(--accent)'
+            e.currentTarget.style.borderColor = 'rgba(91,138,240,0.4)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background =
+              copyStatus === 'copied' ? 'rgba(62,207,160,0.12)' : 'none'
+            e.currentTarget.style.color =
+              copyStatus === 'copied'
+                ? 'var(--hl-teal)'
+                : copyStatus === 'error'
+                  ? 'var(--hl-coral)'
+                  : 'var(--text2)'
+            e.currentTarget.style.borderColor = 'var(--border)'
+          }}
+        >
+          ⧉ {copyLabel}
+        </button>
+
         <button
           onClick={(e) => {
             e.stopPropagation()
@@ -186,7 +231,6 @@ export function Tooltip(): JSX.Element | null {
           }}
           title="แก้ไข entry นี้ใน Glossary"
           style={{
-            marginLeft: 'auto',
             display: 'flex',
             alignItems: 'center',
             gap: 3,
