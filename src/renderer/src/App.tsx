@@ -37,6 +37,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts' // ✅ FIXED
 
 import { countMatches } from './utils/highlight'
 import { findTranslationPair } from './hooks/useChapterPairing'
+import { loadGlossariesFromConfig, type GlossaryLibraries } from './utils/glossaryLoader'
 
 import { useCompactTopBar } from './hooks/useCompactTopBar'
 
@@ -55,6 +56,7 @@ export default function App(): JSX.Element {
 
   // ── Setup wizard ────────────────────────────────────────────────────────
   const [showSetup, setShowSetup] = useState(false)
+  const [ttsGlossaries, setTtsGlossaries] = useState<GlossaryLibraries>({ at_lib: {}, bf_lib: {} })
 
   // ── Auto-load from config on startup ────────────────────────────────────
   useEffect(() => {
@@ -71,6 +73,17 @@ export default function App(): JSX.Element {
           apiKey: cfg.aiApiKey,
           promptPath: cfg.aiPromptPath,
           glossaryPath: cfg.aiGlossaryPath
+        })
+      }
+
+      if (cfg.ttsApiUrl !== undefined) {
+        app.setTtsConfig({
+          apiUrl: cfg.ttsApiUrl || 'https://novelttsapi.onrender.com',
+          apiKey: cfg.ttsApiKey || '',
+          voiceGender: cfg.ttsVoiceGender || 'Female',
+          voiceName: cfg.ttsVoiceName || '',
+          rate: cfg.ttsRate || '+35%',
+          outputPath: cfg.ttsOutputPath || ''
         })
       }
 
@@ -298,6 +311,31 @@ export default function App(): JSX.Element {
     [app]
   )
 
+  const handleSaveTtsAudio = useCallback(
+    async (base64: string, defaultName: string) => {
+      const outputDir = app.ttsConfig.outputPath || undefined
+
+      // Call IPC to save file (shows dialog if no outputDir)
+      const savedPath = await window.electron.saveAudioFile(base64, defaultName, outputDir)
+
+      if (savedPath && !outputDir) {
+        // First time saving — remember the directory in config
+        const dir = savedPath.replace(/[\\/][^\\/]+$/, '')
+        const updatedConfig = { ...app.ttsConfig, outputPath: dir }
+        app.handleTtsConfigChange(updatedConfig)
+      }
+    },
+    [app]
+  )
+
+  useEffect(() => {
+    ;(async () => {
+      const cfg = await window.electron.getEnvConfig()
+      const { libs } = await loadGlossariesFromConfig(cfg.jsonPaths || [], files.tgtPath)
+      setTtsGlossaries(libs)
+    })()
+  }, [files.tgtPath])
+
   // Treat the tgt file content as AI baseline when a file is loaded.
   // This lets corrections be captured even when the user manually opens an
   // AI-translated file (instead of using the in-app AI translate button).
@@ -434,6 +472,9 @@ export default function App(): JSX.Element {
                 onCopySrc={files.handleCopySrc}
                 onAddToGlossary={handleAddToGlossary}
                 onSendToParaphrase={handleSendToParaphrase}
+                ttsConfig={app.ttsConfig}
+                ttsGlossaries={ttsGlossaries}
+                onSaveTtsAudio={handleSaveTtsAudio}
               />
             </>
           ) : (
@@ -493,7 +534,14 @@ export default function App(): JSX.Element {
 
       {/* Terminal */}
       {app.terminalOpen && (
-        <TerminalPanel cwd={app.rootDir} onClose={() => app.setTerminalOpen(false)} />
+        <TerminalPanel
+          cwd={app.rootDir}
+          onClose={() => app.setTerminalOpen(false)}
+          ttsConfig={app.ttsConfig}
+          onTtsConfigChange={app.handleTtsConfigChange}
+          tgtPath={files.tgtPath}
+          tgtContent={files.tgtContent}
+        />
       )}
 
       {/* Status bar */}

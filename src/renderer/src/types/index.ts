@@ -13,8 +13,8 @@ export interface GlossaryEntry {
   type: string
   note?: string
   alt?: string[]
-  path?: string[] // tree path from JSON e.g. ["Characters","Main Character"]
-  _file?: string // source filename tag
+  path?: string[]
+  _file?: string
 }
 
 export interface FileState {
@@ -32,7 +32,7 @@ export interface AppState {
   openFile: FileState | null
 }
 
-// ─── Glossary file types (shared between GlossaryEditor & store) ─────────────
+// ─── Glossary file types ──────────────────────────────────────────────────────
 
 export type GlossaryFileFormat = 'flat' | 'standard' | 'custom'
 
@@ -64,6 +64,13 @@ export interface EnvConfig {
   aiApiKey: string
   aiPromptPath: string
   aiGlossaryPath: string
+  // TTS API config
+  ttsApiUrl: string
+  ttsApiKey: string
+  ttsVoiceGender: string
+  ttsVoiceName: string
+  ttsRate: string
+  ttsOutputPath: string
 }
 
 export interface SaveConfigPayload {
@@ -75,6 +82,13 @@ export interface SaveConfigPayload {
   aiApiKey?: string
   aiPromptPath?: string
   aiGlossaryPath?: string
+  // TTS
+  ttsApiUrl?: string
+  ttsApiKey?: string
+  ttsVoiceGender?: string
+  ttsVoiceName?: string
+  ttsRate?: string
+  ttsOutputPath?: string
 }
 
 declare global {
@@ -88,6 +102,7 @@ declare global {
       // fs
       readTree: (dirPath: string) => Promise<TreeNode[]>
       readFile: (filePath: string) => Promise<string>
+      readFileOptional: (filePath: string) => Promise<string | null>
       readAudioBuffer: (filePath: string) => Promise<string>
       writeFile: (filePath: string, content: string) => Promise<void>
       moveFile: (oldPath: string, newPath: string) => Promise<void>
@@ -98,6 +113,18 @@ declare global {
       // dialog
       openFolder: () => Promise<string | null>
       openFile: (filters?: { name: string; extensions: string[] }[]) => Promise<string | null>
+      /**
+       * Save binary audio file (MP3) to disk.
+       * @param base64 - Base64-encoded MP3 data
+       * @param defaultName - Suggested filename e.g. "tts_2024-01-01.mp3"
+       * @param outputDir - If provided, auto-saves there without dialog
+       * @returns Saved file path, or null if user cancelled
+       */
+      saveAudioFile: (
+        base64: string,
+        defaultName: string,
+        outputDir?: string
+      ) => Promise<string | null>
 
       // shell
       runCommand: (
@@ -117,7 +144,49 @@ declare global {
         model: string
         messages: { role: string; content: string }[]
       }) => Promise<string>
-      tts: (text: string, voice?: string) => Promise<string>
+      /**
+       * Generate TTS audio via Novel TTS API.
+       * Replaces old edge-tts CLI — same base64 return interface.
+       * @param text - Text to synthesize (already preprocessed by ttsPreprocess.ts)
+       * @param options - TTS API options (falls back to defaults if not provided)
+       */
+      tts: (
+        text: string,
+        options?: {
+          apiUrl?: string
+          apiKey?: string
+          voiceGender?: string
+          voiceName?: string
+          rate?: string
+          bf_lib?: Record<string, string>
+          at_lib?: Record<string, string>
+        }
+      ) => Promise<string>
+      /**
+       * Generate TTS audio via Novel TTS API streaming endpoint.
+       * @param text - Text to synthesize
+       * @param options - TTS API options including glossaries
+       */
+      ttsStream: (
+        text: string,
+        options?: {
+          apiUrl?: string
+          apiKey?: string
+          voiceGender?: string
+          voiceName?: string
+          rate?: string
+          bf_lib?: Record<string, string>
+          at_lib?: Record<string, string>
+        }
+      ) => Promise<string>
+      /**
+       * Save TTS audio file to disk.
+       * @param base64 - Base64-encoded MP3 data
+       * @param filename - Output filename
+       * @param outputDir - Directory where file will be saved
+       * @returns Path to saved file
+       */
+      saveTtsAudio: (base64: string, filename: string, outputDir: string) => Promise<string>
 
       // events
       on: (channel: string, cb: (...args: unknown[]) => void) => void
