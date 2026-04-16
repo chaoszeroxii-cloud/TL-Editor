@@ -71,7 +71,7 @@ export function TTSApiTab({
       const filteredBfLib = filterUsedGlossariesFromRecord(testText, glossaries?.bf_lib)
       const filteredAtLib = filterUsedGlossariesFromRecord(testText, glossaries?.at_lib)
       // Call the endpoint via proper window.electron method
-      const base64 = await (useStreaming
+      const response = await (useStreaming
         ? window.electron.ttsStream(testText, {
             apiUrl,
             apiKey: config.apiKey || undefined,
@@ -90,6 +90,9 @@ export function TTSApiTab({
             bf_lib: filteredBfLib,
             at_lib: filteredAtLib
           }))
+
+      // Extract data from response (now returns {requestId, data})
+      const base64 = response.data
       if (!base64 || base64.length < 100) throw new Error('ไม่ได้รับไฟล์เสียงจาก API')
       const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
       const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }))
@@ -129,7 +132,7 @@ export function TTSApiTab({
       const filteredAtLib = filterUsedGlossariesFromRecord(tgtContent, glossaries?.at_lib)
 
       // Generate audio
-      const base64 = await (useStreaming
+      const response = await (useStreaming
         ? window.electron.ttsStream(tgtContent, {
             apiUrl,
             apiKey: config.apiKey || undefined,
@@ -149,6 +152,8 @@ export function TTSApiTab({
             at_lib: filteredAtLib
           }))
 
+      // Extract data from response (now returns {requestId, data})
+      const base64 = response.data
       if (!base64 || base64.length < 100) throw new Error('ไม่ได้รับไฟล์เสียงจาก API')
 
       // Save to file

@@ -227,7 +227,7 @@ export function DualView({
         const processed = preprocessForTts(text, glossary)
         const filteredBfLib = filterUsedGlossariesFromRecord(text, ttsGlossaries?.bf_lib)
         const filteredAtLib = filterUsedGlossariesFromRecord(text, ttsGlossaries?.at_lib)
-        const base64 = await window.electron.tts(processed, {
+        const ttsResponse = await window.electron.tts(processed, {
           apiUrl: ttsConfig?.apiUrl,
           apiKey: ttsConfig?.apiKey,
           voiceGender: ttsConfig?.voiceGender,
@@ -236,6 +236,7 @@ export function DualView({
           bf_lib: filteredBfLib,
           at_lib: filteredAtLib
         })
+        const base64 = ttsResponse.data
         const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
         setTtsBlobUrl(URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' })))
         setTtsBytes(base64)

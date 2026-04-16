@@ -1,3 +1,17 @@
+// src/renderer/src/components/AudioPlayer/index.tsx
+//
+// Performance change (Batch 7):
+//   BEFORE  readAudioBuffer() → base64 string → Uint8Array → Blob → blob: URL
+//           This loads the entire audio file into renderer memory twice (base64 +
+//           ArrayBuffer) before the browser can start decoding.
+//
+//   AFTER   Local files use `audio://local/<encoded-path>` which is served by
+//           Electron's custom protocol handler with streaming support.  The
+//           browser never sees the raw bytes; Electron pipes the file via
+//           net.fetch directly to the media pipeline.
+//
+//           Blob URLs (TTS output) are unchanged — they arrive already decoded.
+
 import { VolSlider } from './VolSlider'
 import { useEffect, useRef, useState, useCallback, memo } from 'react'
 import {
@@ -17,7 +31,6 @@ interface AudioPlayerProps {
   onClose: () => void
   autoPlay?: boolean
   compact?: boolean
-  /** Called every frame while playing: current time (s), total duration (s) */
   onTimeUpdate?: (current: number, duration: number) => void
 }
 
@@ -33,7 +46,14 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v))
 }
 
-// ── Volume slider ─────────────────────────────────────────────────────────────
+// ── Build a streamable src URL for a given filePath ────────────────────────────
+// blob:  → return as-is (TTS output already in memory)
+// other  → audio://local/<percent-encoded-path>  (served by main protocol handler)
+function toAudioSrc(filePath: string): string {
+  if (filePath.startsWith('blob:')) return filePath
+  return `audio://local/${encodeURIComponent(filePath)}`
+}
+
 export const AudioPlayer = memo(function AudioPlayer({
   filePath,
   onClose,
@@ -63,42 +83,26 @@ export const AudioPlayer = memo(function AudioPlayer({
   useEffect(() => {
     const au = audioRef.current
     if (!au) return
-    let ownedBlobUrl = ''
-    ;(async () => {
-      try {
-        let src: string
-        if (filePath.startsWith('blob:')) {
-          src = filePath
-        } else {
-          const base64: string = await window.electron.readAudioBuffer(filePath)
-          const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
-          const ext = filePath.split('.').pop()?.toLowerCase() ?? 'mp3'
-          const mime =
-            ext === 'ogg'
-              ? 'audio/ogg'
-              : ext === 'wav'
-                ? 'audio/wav'
-                : ext === 'm4a'
-                  ? 'audio/mp4'
-                  : 'audio/mpeg'
-          ownedBlobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }))
-          src = ownedBlobUrl
-        }
-        au.src = src
-        au.volume = volume
-        au.muted = muted
-        au.load()
-        if (autoPlay) {
-          au.addEventListener('canplay', () => au.play(), { once: true })
-        }
-      } catch (e) {
-        console.error('AudioPlayer load failed', e)
-      }
-    })()
-    return () => {
-      if (ownedBlobUrl) URL.revokeObjectURL(ownedBlobUrl)
+
+    // No async IPC needed — just set the src and let the protocol handler stream it.
+    const src = toAudioSrc(filePath)
+    au.src = src
+    au.volume = volume
+    au.muted = muted
+    au.load()
+
+    if (autoPlay) {
+      au.addEventListener('canplay', () => au.play(), { once: true })
     }
-  }, [filePath]) // eslint-disable-line
+
+    // Cleanup: for blob: URLs created by TTS panel we do NOT revoke here —
+    // the parent component (DualView) owns that blob and revokes it on close.
+    return () => {
+      au.pause()
+      au.removeAttribute('src')
+      au.load()
+    }
+  }, [filePath, autoPlay, volume, muted])
 
   // ── Tick ──────────────────────────────────────────────────────────────────
   const tick = useCallback(() => {
@@ -191,15 +195,13 @@ export const AudioPlayer = memo(function AudioPlayer({
     const au = audioRef.current
     if (au) {
       au.pause()
-      au.src = ''
+      au.removeAttribute('src')
+      au.load()
     }
     onClose()
   }
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
-  // Alt+Space ใช้ไม่ได้เพราะ Windows ดัก event นั้นระดับ OS (System Menu)
-  // → ใช้ Ctrl+Space แทนสำหรับ play/pause
-  // Alt+Arrow ต้องเรียก stopPropagation() ด้วย ไม่งั้น Row textarea จะรับ event ซ้ำ
   useEffect(() => {
     const isInputFocused = (): boolean => {
       const el = document.activeElement
@@ -211,17 +213,15 @@ export const AudioPlayer = memo(function AudioPlayer({
       const ctrl = e.ctrlKey || e.metaKey
       const code = e.code
 
-      // Ctrl+Space — play/pause (ใช้แทน Alt+Space ที่ถูก Windows ดัก)
       if (ctrl && !alt && code === 'Space') {
         e.preventDefault()
         e.stopPropagation()
         togglePlay()
         return
       }
-      // Alt+← / Alt+→ — seek ±5s
       if (alt && code === 'ArrowLeft') {
         e.preventDefault()
-        e.stopPropagation() // ป้องกัน Row textarea ทำ move-line ซ้ำ
+        e.stopPropagation()
         skip(-5)
         return
       }
@@ -231,7 +231,6 @@ export const AudioPlayer = memo(function AudioPlayer({
         skip(5)
         return
       }
-      // Alt+↑↓ — volume
       if (alt && code === 'ArrowUp') {
         e.preventDefault()
         e.stopPropagation()
@@ -254,14 +253,12 @@ export const AudioPlayer = memo(function AudioPlayer({
         })
         return
       }
-      // Alt+M — mute
       if (alt && code === 'KeyM') {
         e.preventDefault()
         e.stopPropagation()
         toggleMute()
         return
       }
-      // Alt+0 — seek to start
       if (alt && code === 'Digit0') {
         e.preventDefault()
         e.stopPropagation()
@@ -269,7 +266,6 @@ export const AudioPlayer = memo(function AudioPlayer({
         return
       }
 
-      // Non-alt/ctrl: only when no text input focused
       if (!alt && !ctrl && !isInputFocused()) {
         if (code === 'Space') {
           e.preventDefault()
@@ -328,7 +324,6 @@ export const AudioPlayer = memo(function AudioPlayer({
       <audio ref={audioRef} preload="metadata" />
 
       <div style={S.bar}>
-        {/* icon / filename */}
         {compact ? (
           <span style={{ ...S.musicIcon, flexShrink: 0 }}>
             <IcoMusic size={12} stroke="currentColor" />
@@ -344,12 +339,11 @@ export const AudioPlayer = memo(function AudioPlayer({
           </div>
         )}
 
-        {/* transport */}
         <div style={S.transport}>
           <button style={S.iconBtn} onClick={() => skip(-5)} title="ย้อนหลัง 5s (← หรือ Alt+←)">
             <IcoSkipBack size={12} stroke="currentColor" />
           </button>
-          <button style={S.playBtn} onClick={togglePlay} title="เล่น/หยุด (Space หรือ Alt+Space)">
+          <button style={S.playBtn} onClick={togglePlay} title="เล่น/หยุด (Space หรือ Ctrl+Space)">
             {playing ? (
               <IcoPause size={12} stroke="currentColor" />
             ) : (
@@ -363,7 +357,6 @@ export const AudioPlayer = memo(function AudioPlayer({
 
         <span style={S.time}>{fmtTime(current)}</span>
 
-        {/* seek bar — taller hit area */}
         <div
           ref={trackRef}
           style={{ ...S.track, cursor: duration ? 'pointer' : 'default' }}
@@ -373,16 +366,7 @@ export const AudioPlayer = memo(function AudioPlayer({
         >
           <div style={S.trackBg} />
           <div style={{ ...S.fill, width: `${pct}%` }} />
-          {/* playhead glow */}
-          {playing && (
-            <div
-              style={{
-                ...S.playhead,
-                left: `${pct}%`,
-                opacity: 0.9
-              }}
-            />
-          )}
+          {playing && <div style={{ ...S.playhead, left: `${pct}%`, opacity: 0.9 }} />}
           <div
             style={{
               ...S.thumb,
@@ -409,7 +393,6 @@ export const AudioPlayer = memo(function AudioPlayer({
 
         <div style={S.sep} />
 
-        {/* keyboard hint toggle */}
         <button
           style={{
             ...S.iconBtn,
@@ -438,7 +421,6 @@ export const AudioPlayer = memo(function AudioPlayer({
         </button>
       </div>
 
-      {/* keyboard hint strip */}
       {showHints && (
         <div style={S.hints}>
           {[
@@ -525,7 +507,6 @@ const S: Record<string, React.CSSProperties> = {
     textAlign: 'center',
     flexShrink: 0
   },
-  // taller click area (20px) → easier to hit
   track: {
     flex: 1,
     height: 20,
@@ -597,11 +578,7 @@ const S: Record<string, React.CSSProperties> = {
     borderBottom: '1px solid var(--border)',
     flexWrap: 'wrap'
   },
-  hintItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 4
-  },
+  hintItem: { display: 'flex', alignItems: 'center', gap: 4 },
   kbd: {
     fontSize: 9,
     fontFamily: 'var(--font-mono)',
@@ -611,9 +588,5 @@ const S: Record<string, React.CSSProperties> = {
     padding: '1px 5px',
     color: 'var(--accent)'
   },
-  hintDesc: {
-    fontSize: 9,
-    color: 'var(--text2)',
-    fontFamily: 'var(--font-mono)'
-  }
+  hintDesc: { fontSize: 9, color: 'var(--text2)', fontFamily: 'var(--font-mono)' }
 }

@@ -1,9 +1,11 @@
 import { ipcMain, dialog } from 'electron'
 import { writeFile } from 'fs/promises'
+import { approvePath } from './pathAccess'
 
 export function registerDialogHandlers(): void {
   ipcMain.handle('dialog:openFolder', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    if (!canceled) approvePath(filePaths[0])
     return canceled ? null : filePaths[0]
   })
 
@@ -12,6 +14,7 @@ export function registerDialogHandlers(): void {
       properties: ['openFile'],
       filters: filters ?? [{ name: 'All Files', extensions: ['*'] }]
     })
+    if (!result.canceled) approvePath(result.filePaths[0])
     return result.canceled ? null : result.filePaths[0]
   })
 
@@ -33,6 +36,7 @@ export function registerDialogHandlers(): void {
       filters
     })
     if (result.canceled || !result.filePath) return null
+    approvePath(result.filePath)
     await writeFile(result.filePath, content, 'utf-8')
     return result.filePath
   })

@@ -1,4 +1,42 @@
-import type { GlossaryEntry, GlossaryFileFormat, OpenGlossaryFile } from '../types'
+import type { GlossaryEntry, GlossaryFileFormat, OpenGlossaryFile, GlossaryFormat } from '../types'
+
+// ─── Default glossary format (Thai nested) ────────────────────────────────────
+
+export const DEFAULT_GLOSSARY_FORMAT: GlossaryFormat = {
+  callKey: 'Called',
+  detailKey: 'รายละเอียด',
+  firstAppKey: 'First Appearance',
+  isNested: true
+}
+
+// Helper to check if an object has the call key (case-insensitive for common variants)
+function hasCallKey(obj: Record<string, unknown>, format: GlossaryFormat): boolean {
+  const lowercaseKey = format.callKey.toLowerCase()
+  return format.callKey in obj || Object.keys(obj).some((k) => k.toLowerCase() === lowercaseKey)
+}
+
+function getCallKeyValue(
+  obj: Record<string, unknown>,
+  format: GlossaryFormat
+): unknown | undefined {
+  const lowercaseKey = format.callKey.toLowerCase()
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === format.callKey || k.toLowerCase() === lowercaseKey) {
+      return v
+    }
+  }
+  return undefined
+}
+
+function getFormatValue(obj: Record<string, unknown>, key: string): unknown | undefined {
+  const lowercaseKey = key.toLowerCase()
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === key || k.toLowerCase() === lowercaseKey) {
+      return v
+    }
+  }
+  return undefined
+}
 
 // ─── Flat parser  { "src": "th" } ─────────────────────────────────────────────
 
@@ -19,12 +57,6 @@ export function serializeFlatJson(entries: GlossaryEntry[]): string {
 
 // ─── Nested parser (recursive novel JSON) ────────────────────────────────────
 
-const LEAF_META_KEYS = new Set(['Called', 'called', 'รายละเอียด', 'First Appearance'])
-
-function hasCalledKey(obj: Record<string, unknown>): boolean {
-  return 'Called' in obj || 'called' in obj
-}
-
 function isSinglePairBuff(obj: Record<string, unknown>): boolean {
   const entries = Object.entries(obj)
   return entries.length === 1 && entries[0][0].trim() !== '' && typeof entries[0][1] === 'string'
@@ -34,7 +66,8 @@ function parseNestedNode(
   key: string,
   value: unknown,
   path: string[],
-  result: GlossaryEntry[]
+  result: GlossaryEntry[],
+  format: GlossaryFormat
 ): void {
   if (!key.trim() || key.startsWith('_')) return
   const topType = path[0] ?? 'other'
@@ -55,8 +88,8 @@ function parseNestedNode(
   } else if (value !== null && typeof value === 'object') {
     const obj = value as Record<string, unknown>
 
-    if (hasCalledKey(obj)) {
-      const calledRaw = obj['Called'] ?? obj['called']
+    if (hasCallKey(obj, format)) {
+      const calledRaw = getCallKeyValue(obj, format)
       let th = ''
       let alt: string[] | undefined
       if (Array.isArray(calledRaw)) {
@@ -66,13 +99,11 @@ function parseNestedNode(
       } else {
         th = typeof calledRaw === 'string' ? calledRaw : ''
       }
-      const detail =
-        typeof obj['รายละเอียด'] === 'string' ? (obj['รายละเอียด'] as string) : undefined
-      const firstApp =
-        typeof obj['First Appearance'] === 'string'
-          ? (obj['First Appearance'] as string)
-          : undefined
-      const noteParts = [detail, firstApp].filter(Boolean)
+      const detail = getFormatValue(obj, format.detailKey)
+      const firstApp = getFormatValue(obj, format.firstAppKey)
+      const detailStr = typeof detail === 'string' ? detail : undefined
+      const firstAppStr = typeof firstApp === 'string' ? firstApp : undefined
+      const noteParts = [detailStr, firstAppStr].filter(Boolean)
       result.push({
         src: key,
         th,
@@ -81,13 +112,17 @@ function parseNestedNode(
         type: topType,
         path: [...path]
       })
+      // Recursively parse sub-keys, excluding metadata keys (mutate path for O(n) instead of O(n²))
+      const metaKeys = new Set([format.callKey, format.detailKey, format.firstAppKey])
+      path.push(key) // Add to path for nested traversal
       for (const [subKey, subVal] of Object.entries(obj)) {
-        if (LEAF_META_KEYS.has(subKey) || !subKey.trim() || subKey.startsWith('_')) continue
+        if (metaKeys.has(subKey) || !subKey.trim() || subKey.startsWith('_')) continue
         if (typeof subVal === 'object' && subVal !== null && !Array.isArray(subVal))
-          parseNestedNode(subKey, subVal, [...path, key], result)
+          parseNestedNode(subKey, subVal, path, result, format)
         else if (typeof subVal === 'string' && subVal.trim())
-          result.push({ src: subKey, th: subVal, type: topType, path: [...path, key] })
+          result.push({ src: subKey, th: subVal, type: topType, path: [...path] })
       }
+      path.pop() // Remove from path (backtrack)
     } else if (isSinglePairBuff(obj)) {
       const [[thKey, desc]] = Object.entries(obj)
       if (thKey.trim())
@@ -99,43 +134,53 @@ function parseNestedNode(
           path: [...path]
         })
     } else {
+      path.push(key) // Add to path for nested traversal
       for (const [subKey, subVal] of Object.entries(obj))
-        parseNestedNode(subKey, subVal, [...path, key], result)
+        parseNestedNode(subKey, subVal, path, result, format)
+      path.pop() // Remove from path (backtrack)
     }
   }
 }
 
-export function parseNestedJson(raw: Record<string, unknown>): GlossaryEntry[] {
+export function parseNestedJson(
+  raw: Record<string, unknown>,
+  format: GlossaryFormat = DEFAULT_GLOSSARY_FORMAT
+): GlossaryEntry[] {
   const result: GlossaryEntry[] = []
-  for (const [key, value] of Object.entries(raw)) parseNestedNode(key, value, [], result)
+  for (const [key, value] of Object.entries(raw)) parseNestedNode(key, value, [], result, format)
   return result
 }
 
 // ─── Nested serializer ────────────────────────────────────────────────────────
 
-function buildEntryValue(entry: GlossaryEntry): unknown {
+function buildEntryValue(entry: GlossaryEntry, format: GlossaryFormat): unknown {
   if ((entry.alt?.length ?? 0) > 0) {
     const called = [entry.th, ...(entry.alt ?? [])]
-    return entry.note ? { Called: called, รายละเอียด: entry.note } : { Called: called }
+    return entry.note
+      ? { [format.callKey]: called, [format.detailKey]: entry.note }
+      : { [format.callKey]: called }
   }
-  if (entry.note) return { Called: entry.th, รายละเอียด: entry.note }
+  if (entry.note) return { [format.callKey]: entry.th, [format.detailKey]: entry.note }
   return entry.th
 }
 
-export function serializeToNested(entries: GlossaryEntry[]): string {
+export function serializeToNested(
+  entries: GlossaryEntry[],
+  format: GlossaryFormat = DEFAULT_GLOSSARY_FORMAT
+): string {
   const root: Record<string, unknown> = {}
 
   for (const entry of entries) {
     if (!entry.src.trim() || !entry.th.trim()) continue
     const path = (entry.path ?? []).filter((s) => s.trim())
-    const value = buildEntryValue(entry)
+    const value = buildEntryValue(entry, format)
 
     let cur = root
     for (const segment of path) {
       const existing = cur[segment]
       if (typeof existing !== 'object' || existing === null || Array.isArray(existing)) {
         const newObj: Record<string, unknown> = {}
-        if (typeof existing === 'string' && existing.trim()) newObj['Called'] = existing
+        if (typeof existing === 'string' && existing.trim()) newObj[format.callKey] = existing
         cur[segment] = newObj
       }
       cur = cur[segment] as Record<string, unknown>
@@ -144,7 +189,7 @@ export function serializeToNested(entries: GlossaryEntry[]): string {
     const existing = cur[entry.src]
     if (typeof existing === 'object' && existing !== null && !Array.isArray(existing)) {
       const obj = existing as Record<string, unknown>
-      if (typeof value === 'string') obj['Called'] = value
+      if (typeof value === 'string') obj[format.callKey] = value
       else if (typeof value === 'object' && value !== null) Object.assign(obj, value)
     } else {
       cur[entry.src] = value
@@ -196,7 +241,7 @@ export function parseGlossaryFile(path: string, raw: string): OpenGlossaryFile {
       name,
       format: 'custom',
       isDirty: false,
-      entries: parseNestedJson(parsed as Record<string, unknown>)
+      entries: parseNestedJson(parsed as Record<string, unknown>, DEFAULT_GLOSSARY_FORMAT)
     }
 
   return { path, name, format: 'custom', isDirty: false, entries: [] }
@@ -204,8 +249,19 @@ export function parseGlossaryFile(path: string, raw: string): OpenGlossaryFile {
 
 // ─── Serialize by format ──────────────────────────────────────────────────────
 
-export function serializeByFormat(entries: GlossaryEntry[], format: GlossaryFileFormat): string {
-  if (format === 'flat') return serializeFlatJson(entries)
-  if (format === 'custom' || hasNestedPaths(entries)) return serializeToNested(entries)
-  return JSON.stringify(entries, null, 2)
+export function serializeGlossary(
+  entries: GlossaryEntry[],
+  format: GlossaryFileFormat,
+  glossaryFormat?: GlossaryFormat
+): string {
+  switch (format) {
+    case 'flat':
+      return serializeFlatJson(entries)
+    case 'standard':
+      return JSON.stringify(entries, null, 4)
+    case 'custom':
+      return serializeToNested(entries, glossaryFormat ?? DEFAULT_GLOSSARY_FORMAT)
+    default:
+      return JSON.stringify(entries, null, 4)
+  }
 }

@@ -9,10 +9,19 @@
   "compilerOptions": {
     "composite": true,
     "jsx": "react-jsx",
-    "baseUrl": ".",
+    "types": ["jest", "@testing-library/jest-dom"],
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "moduleResolution": "bundler",
     "paths": {
       "@renderer/*": [
-        "src/renderer/src/*"
+        "./src/renderer/src/*"
       ]
     }
   }

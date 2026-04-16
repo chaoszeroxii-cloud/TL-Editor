@@ -199,7 +199,7 @@ export function ParaphraseTab({
         systemPrompt = `${stylePromptSnippet}\n\nUsing the style guidelines above, paraphrase the following Thai text to precisely match this translator's style. Output only the paraphrased text — no explanation, no prefix, no suffix.`
       }
 
-      const rawJson = await window.electron.openrouterChat({
+      const response = await window.electron.openrouterChat({
         apiKey: apiKey.trim(),
         model: 'deepseek/deepseek-v3.2',
         messages: [
@@ -208,6 +208,8 @@ export function ParaphraseTab({
         ]
       })
 
+      // Extract data from response object (requestId is not used in paraphrase)
+      const { data: rawJson } = response as { requestId: string; data: string }
       const data = JSON.parse(rawJson)
       const output: string = (data.choices?.[0]?.message?.content ?? '').trim()
       if (!output) throw new Error('AI ไม่ส่งผลลัพธ์กลับมา')
@@ -760,7 +762,7 @@ export function ParaphraseTab({
           }}
         >
           {/* Header */}
-          <button
+          <div
             onClick={() => setShowHistory((v) => !v)}
             style={{
               width: '100%',
@@ -814,7 +816,7 @@ export function ParaphraseTab({
             >
               ล้าง
             </button>
-          </button>
+          </div>
 
           {/* History list */}
           {showHistory && (
