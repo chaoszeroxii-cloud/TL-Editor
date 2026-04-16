@@ -346,7 +346,7 @@ export const Row = memo(function Row({
         e.preventDefault()
         suppressBlurRef.current = true
         if (ta.value !== text) onCommit(ta.value)
-        onNavUp(getColOffset(ta))
+        onNavUp(Infinity)
       }
       return
     }
@@ -570,6 +570,7 @@ export const Row = memo(function Row({
                 outline: 'none',
                 boxSizing: 'border-box',
                 height: 'auto',
+                minHeight: ROW_H + 'px',
                 overflow: 'hidden'
               }}
             />

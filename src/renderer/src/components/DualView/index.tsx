@@ -474,6 +474,7 @@ export function DualView({
 
   const handleNavUp = useCallback((col: number, rowIdx: number) => {
     if (rowIdx === 0) return
+    setFocusAtStart(false)
     setNavCol(col)
     setNavDir('up')
     setPendingCursor(null)
