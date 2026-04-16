@@ -147,11 +147,7 @@ export function SetupWizard({ onDone }: SetupWizardProps): JSX.Element {
     setPipStatus('installing')
     setPipLog('')
     try {
-      const pkgs = REQUIRED_PACKAGES.join(' ')
-      const result = await window.electron.runCommand(
-        `"${exePath}" -m pip install --upgrade ${pkgs}`,
-        undefined
-      )
+      const result = await window.electron.installPythonPackages(exePath, REQUIRED_PACKAGES)
       if (result.exitCode === 0) {
         setPipStatus('done')
         setPipLog('ติดตั้งสำเร็จ')
@@ -182,15 +178,22 @@ export function SetupWizard({ onDone }: SetupWizardProps): JSX.Element {
   }
 
   const handleFinish = async (): Promise<void> => {
-    const cfg: SetupConfig = {
-      folderPath: folderPath.trim() || null,
+    const cfg = {
+      folderPath: folderPath.trim() || undefined,
       jsonPaths: jsonPaths.filter(Boolean),
-      pythonExe: pythonExe.trim(),
-      pythonScript: pythonScripts.filter(Boolean).join(','),
-      pythonCwd: pythonCwd.trim()
-    }
-    await window.electron.saveConfig(cfg)
-    onDone(cfg)
+      pythonExe: pythonExe.trim() || undefined,
+      pythonScript: pythonScripts.filter(Boolean).join(',') || undefined,
+      pythonCwd: pythonCwd.trim() || undefined
+    } as const
+    // Use patch to preserve other config fields (aiApiKey, ttsApiKey, etc.)
+    await window.electron.saveConfigPatch(cfg)
+    onDone({
+      folderPath: cfg.folderPath ?? null,
+      jsonPaths: cfg.jsonPaths,
+      pythonExe: cfg.pythonExe ?? '',
+      pythonScript: cfg.pythonScript ?? '',
+      pythonCwd: cfg.pythonCwd ?? ''
+    })
   }
 
   // ── Step content ─────────────────────────────────────────────────────────────

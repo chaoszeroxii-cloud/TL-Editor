@@ -5,6 +5,7 @@ import { IcoEditFile } from '../common/icons'
 export interface GlossaryEditorProps {
   file: OpenGlossaryFile
   onSave?: (updated: OpenGlossaryFile) => void
+  onSaveChanges?: (updatedFile: OpenGlossaryFile, oldFile: OpenGlossaryFile) => Promise<void>
   onClose: () => void
   onImportToSession: (entries: GlossaryEntry[]) => void
 }
@@ -12,7 +13,8 @@ export interface GlossaryEditorProps {
 export function GlossaryEditor({
   file,
   onClose,
-  onImportToSession
+  onImportToSession,
+  onSaveChanges
 }: GlossaryEditorProps): JSX.Element {
   const [entries, setEntries] = useState<GlossaryEntry[]>(file.entries)
   const [search, setSearch] = useState('')
@@ -23,6 +25,7 @@ export function GlossaryEditor({
   const [editNote, setEditNote] = useState('')
   const [editType, setEditType] = useState<string>('other')
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
 
   const filtered = entries.filter(
     (e) =>
@@ -64,6 +67,20 @@ export function GlossaryEditor({
     setConfirmDelete(null)
     if (editingIdx === real) setEditingIdx(null)
   }
+
+  const handleSave = useCallback(async () => {
+    if (!isDirty || !onSaveChanges) return
+    setIsSaving(true)
+    try {
+      const updatedFile: OpenGlossaryFile = { ...file, entries }
+      await onSaveChanges(updatedFile, file)
+      setIsDirty(false)
+    } catch (e) {
+      console.error('Failed to save glossary changes:', e)
+    } finally {
+      setIsSaving(false)
+    }
+  }, [isDirty, entries, file, onSaveChanges])
 
   useEffect(() => {
     const h = (e: KeyboardEvent): void => {
@@ -113,6 +130,16 @@ export function GlossaryEditor({
             </div>
           </div>
           <div style={s.headerRight}>
+            {isDirty && onSaveChanges && (
+              <button
+                style={{ ...s.btnSecondary, color: isDirty ? 'var(--hl-teal)' : 'var(--text2)' }}
+                onClick={handleSave}
+                disabled={isSaving}
+                title="บันทึก (Ctrl+S)"
+              >
+                {isSaving ? '…' : '💾'}
+              </button>
+            )}
             <button
               style={s.btnSecondary}
               onClick={() => onImportToSession(entries.map((e) => ({ ...e, _file: file.name })))}

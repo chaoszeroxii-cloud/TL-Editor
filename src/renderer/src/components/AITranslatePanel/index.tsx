@@ -83,6 +83,7 @@ export function AITranslatePanel({
   const [statusMsg, setStatusMsg] = useState('')
   const [showKey, setShowKey] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const [networkRequestId, setNetworkRequestId] = useState<string | null>(null)
 
   const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([])
   const [showEntries, setShowEntries] = useState(false)
@@ -98,7 +99,7 @@ export function AITranslatePanel({
 
   useEffect(() => {
     onConfigChange({ apiKey, promptPath, glossaryPath })
-  }, [apiKey, promptPath, glossaryPath]) // eslint-disable-line
+  }, [apiKey, promptPath, glossaryPath, onConfigChange])
 
   // เมื่อได้รับข้อความจาก context menu → switch ไปที่ tab paraphrase
   useEffect(() => {
@@ -106,7 +107,7 @@ export function AITranslatePanel({
       setActiveTab('paraphrase')
       onParaphraseInputConsumed?.()
     }
-  }, [paraphraseInput]) // eslint-disable-line
+  }, [paraphraseInput, setActiveTab, onParaphraseInputConsumed])
 
   const browsePrompt = async (): Promise<void> => {
     const p = await window.electron.openFile([{ name: 'Text / Prompt', extensions: ['txt', 'md'] }])
@@ -157,7 +158,7 @@ export function AITranslatePanel({
 
       setStatusMsg('กำลังส่งไป DeepSeek…')
 
-      const rawJson = await window.electron.openrouterChat({
+      const response = await window.electron.openrouterChat({
         apiKey: apiKey.trim(),
         model: 'deepseek/deepseek-v3.2',
         messages: [
@@ -165,6 +166,10 @@ export function AITranslatePanel({
           { role: 'user', content: srcContent }
         ]
       })
+
+      // Extract requestId and data from unified response format
+      const { requestId, data: rawJson } = response as { requestId: string; data: string }
+      setNetworkRequestId(requestId)
 
       let data: unknown
       try {
@@ -192,10 +197,12 @@ export function AITranslatePanel({
       if ((e as Error).name === 'AbortError') {
         setStatus('idle')
         setStatusMsg('ยกเลิกแล้ว')
+        setNetworkRequestId(null)
         return
       }
       setStatus('error')
       setStatusMsg(String(e))
+      setNetworkRequestId(null)
     }
   }, [apiKey, promptPath, glossaryPath, srcContent, onResult, fileNames, stylePromptSnippet])
 
@@ -379,7 +386,15 @@ export function AITranslatePanel({
 
             <div style={s.btnRow}>
               {status === 'loading' ? (
-                <button onClick={() => abortRef.current?.abort()} style={s.btnCancel}>
+                <button
+                  onClick={() => {
+                    abortRef.current?.abort()
+                    if (networkRequestId) {
+                      window.electron.cancelNetworkRequest(networkRequestId).catch(console.error)
+                    }
+                  }}
+                  style={s.btnCancel}
+                >
                   ยกเลิก
                 </button>
               ) : (

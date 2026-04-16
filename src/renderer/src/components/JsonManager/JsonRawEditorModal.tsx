@@ -571,19 +571,27 @@ export function JsonRawEditorModal({ files, onClose }: JsonRawEditorModalProps):
   const [activeMatchIdx, setActiveMatchIdx] = useState(0)
   const findInputRef = useRef<HTMLInputElement>(null)
 
-  const fileNames = Object.keys(files)
+  const fileNames = useMemo(() => Object.keys(files), [files])
 
   const loadFile = useCallback(
     async (name: string) => {
-      if (!files[name]) return
+      if (!files[name]) {
+        console.warn(`[JsonManager] File not found in files map: ${name}`, { name, files })
+        setFileError(`ไฟล์ "${name}" ไม่มี path`)
+        return
+      }
+      const filePath = files[name]
+      console.log(`[JsonManager] Loading file: ${name} from ${filePath}`)
       setLoading(true)
       setFileError(null)
       try {
-        const raw = await window.electron.readFile(files[name])
+        const raw = await window.electron.readFile(filePath)
+        console.log(`[JsonManager] File loaded, size: ${raw.length} bytes`)
         let pretty = raw
         try {
           pretty = JSON.stringify(JSON.parse(raw), null, 2)
-        } catch {
+        } catch (parseErr) {
+          console.warn(`[JsonManager] JSON parse failed, keeping raw:`, parseErr)
           /* keep raw */
         }
         setContent(pretty)
@@ -593,8 +601,11 @@ export function JsonRawEditorModal({ files, onClose }: JsonRawEditorModalProps):
         redoStack.current = []
         setUndoCount(0)
         setRedoCount(0)
+        console.log(`[JsonManager] File loaded successfully`)
       } catch (e) {
-        setFileError(String(e))
+        const errMsg = e instanceof Error ? e.message : String(e)
+        console.error(`[JsonManager] Failed to load file: ${errMsg}`, e)
+        setFileError(`ไม่สามารถอ่านไฟล์: ${errMsg}`)
       } finally {
         setLoading(false)
       }
@@ -602,9 +613,13 @@ export function JsonRawEditorModal({ files, onClose }: JsonRawEditorModalProps):
     [files]
   )
 
+  const lastLoadedFileRef = useRef<string | null>(null)
   useEffect(() => {
-    if (fileNames.length > 0) loadFile(fileNames[0])
-  }, []) // eslint-disable-line
+    const firstName = fileNames[0]
+    if (!firstName || lastLoadedFileRef.current === firstName) return
+    lastLoadedFileRef.current = firstName
+    loadFile(firstName)
+  }, [fileNames, loadFile])
 
   const handleSave = useCallback(async () => {
     if (!selected || saving) return
@@ -825,16 +840,44 @@ export function JsonRawEditorModal({ files, onClose }: JsonRawEditorModalProps):
       }
       if (e.altKey && e.shiftKey && e.key === 'ArrowDown') {
         e.preventDefault()
-        const { lineIdx, lineOffset, lines } = getLineAt(content, ta.selectionStart)
+        const start = ta.selectionStart
+        const end = ta.selectionEnd
+        const hasSelection = start !== end
+
+        // ── Get line indices for selection ──────────────────────────────
+        const beforeStart = content.slice(0, start)
+        const beforeEnd = content.slice(0, end)
+        const startLineIdx = beforeStart.split('\n').length - 1
+        const endLineIdx = beforeEnd.split('\n').length - 1
+
+        const { lines } = getLineAt(content, start)
         const newLines = [...lines]
-        newLines.splice(lineIdx + 1, 0, lines[lineIdx]) // insert copy below
+
+        // ── Get the lines to duplicate ──────────────────────────────────
+        const linesToDuplicate = newLines.slice(startLineIdx, endLineIdx + 1)
+        const duplicated = [...linesToDuplicate]
+
+        // ── Insert duplicated lines after the selection ──────────────────
+        newLines.splice(endLineIdx + 1, 0, ...duplicated)
+
         const newContent = newLines.join('\n')
-        const newStart = lineStartPos(newLines, lineIdx + 1)
-        const newCursor = newStart + Math.min(lineOffset, newLines[lineIdx + 1].length)
+
+        // ── Calculate new cursor position ───────────────────────────────
+        const newStartPos = lineStartPos(newLines, endLineIdx + 1)
+        const newEndPos =
+          newStartPos +
+          newLines.slice(endLineIdx + 1, endLineIdx + 1 + duplicated.length).join('\n').length
+
         pushUndo(content)
         setContent(newContent)
         requestAnimationFrame(() => {
-          ta.setSelectionRange(newCursor, newCursor)
+          if (hasSelection) {
+            // Keep selection on the duplicated lines
+            ta.setSelectionRange(newStartPos, newEndPos)
+          } else {
+            // Just cursor
+            ta.setSelectionRange(newStartPos, newStartPos)
+          }
           ta.focus()
         })
         return

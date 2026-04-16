@@ -15,7 +15,8 @@ import {
 import { Sidebar } from './components/Sidebar'
 import { DualView } from './components/DualView'
 import { GlossaryPanel } from './components/GlossaryPanel'
-import { Tooltip } from './components/common/Tooltip' // ✅ FIXED
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { Tooltip } from './components/common/Tooltip'
 import { GlossaryEditor } from './components/GlossaryEditor'
 import { AudioPlayer } from './components/AudioPlayer'
 import { JsonRawEditorModal } from './components/JsonManager/JsonRawEditorModal'
@@ -104,7 +105,9 @@ export default function App(): JSX.Element {
         await gls.autoImportJsonFiles(envFiles)
       }
     })()
-  }, []) // eslint-disable-line
+    // Only run once on mount — app/files/gls are store hooks with stable references
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const loadWorkspaceData = useCallback(
     async (folderPath: string, shouldReset = false) => {
@@ -200,6 +203,19 @@ export default function App(): JSX.Element {
     [app, files]
   )
 
+  // ── File renamed (from file label or sidebar) ────────────────────────────
+  // Wraps files.commitRename to handle tree refresh after successful rename
+  const handleCommitRename = useCallback(
+    async (which: 'tgt' | 'src'): Promise<void> => {
+      const newPath = await files.commitRename(which)
+      if (!newPath || !app.rootDir) return
+      // Refresh tree to show updated file names
+      const newTree = await window.electron.readTree(app.rootDir)
+      app.setTree(newTree)
+    },
+    [files, app]
+  )
+
   // ── Refresh tree ─────────────────────────────────────────────────────────
   const { rootDir, setTree } = app
   const handleRefresh = useCallback(async () => {
@@ -276,7 +292,7 @@ export default function App(): JSX.Element {
         // File doesn't exist yet — start fresh (store handles this)
       }
     })()
-  }, [app.rootDir]) // eslint-disable-line
+  }, [app.rootDir, styleProfile])
 
   // Wrap handleAiResult to track what AI generated
   const handleAiResult = useCallback(
@@ -399,7 +415,7 @@ export default function App(): JSX.Element {
           onRenameChange={files.setRenameValue}
           onStartRenameTgt={files.startRenameTgt}
           onStartRenameSrc={files.startRenameSrc}
-          onCommitRename={files.commitRename}
+          onCommitRename={handleCommitRename}
           onCancelRename={files.cancelRename}
         />
         <TopBarRight
@@ -451,31 +467,33 @@ export default function App(): JSX.Element {
                   onClose={() => files.setMp3Path(null)}
                 />
               )}
-              <DualView
-                key={files.tgtPath}
-                srcContent={files.srcContent}
-                tgtContent={files.tgtContent}
-                srcLabel="SOURCE · ต้นฉบับ"
-                tgtLabel="TRANSLATION · แปล"
-                srcColor="#3ecfa0"
-                tgtColor="#5b8af0"
-                glossary={gls.glossary}
-                onTgtChange={files.handleTgtChange}
-                onSrcChange={files.handleSrcChange}
-                onUndo={files.handleUndo}
-                onRedo={files.handleRedo}
-                onSrcUndo={files.handleSrcUndo}
-                onSrcRedo={files.handleSrcRedo}
-                activeRow={files.activeRow}
-                onRowFocus={files.setActiveRow}
-                onCopyTgt={files.handleCopyTgt}
-                onCopySrc={files.handleCopySrc}
-                onAddToGlossary={handleAddToGlossary}
-                onSendToParaphrase={handleSendToParaphrase}
-                ttsConfig={app.ttsConfig}
-                ttsGlossaries={ttsGlossaries}
-                onSaveTtsAudio={handleSaveTtsAudio}
-              />
+              <ErrorBoundary name="DualView">
+                <DualView
+                  key={files.tgtPath}
+                  srcContent={files.srcContent}
+                  tgtContent={files.tgtContent}
+                  srcLabel="SOURCE · ต้นฉบับ"
+                  tgtLabel="TRANSLATION · แปล"
+                  srcColor="#3ecfa0"
+                  tgtColor="#5b8af0"
+                  glossary={gls.glossary}
+                  onTgtChange={files.handleTgtChange}
+                  onSrcChange={files.handleSrcChange}
+                  onUndo={files.handleUndo}
+                  onRedo={files.handleRedo}
+                  onSrcUndo={files.handleSrcUndo}
+                  onSrcRedo={files.handleSrcRedo}
+                  activeRow={files.activeRow}
+                  onRowFocus={files.setActiveRow}
+                  onCopyTgt={files.handleCopyTgt}
+                  onCopySrc={files.handleCopySrc}
+                  onAddToGlossary={handleAddToGlossary}
+                  onSendToParaphrase={handleSendToParaphrase}
+                  ttsConfig={app.ttsConfig}
+                  ttsGlossaries={ttsGlossaries}
+                  onSaveTtsAudio={handleSaveTtsAudio}
+                />
+              </ErrorBoundary>
             </>
           ) : (
             <EmptyState
@@ -487,61 +505,72 @@ export default function App(): JSX.Element {
         </div>
 
         {hasAnyFile && app.glossaryVisible && (
-          <GlossaryPanel
-            glossary={gls.glossary}
-            matchCount={matchCount}
-            glossaryPath={gls.glossaryPath}
-            sourceFilePaths={gls.sourceFilePaths}
-            sourceFileFormats={gls.sourceFileFormats}
-            onGlossaryChange={gls.setGlossary}
-            currentContent={`${files.srcContent}\n${files.tgtContent}`}
-            prefillSrc={gls.glossaryPrefillSrc}
-            onPrefillConsumed={() => gls.setGlossaryPrefillSrc(null)}
-            prefillEntry={glossaryPrefillEntry}
-            onPrefillEntryConsumed={() => setGlossaryPrefillEntry(null)}
-          />
+          <ErrorBoundary name="GlossaryPanel">
+            <GlossaryPanel
+              glossary={gls.glossary}
+              matchCount={matchCount}
+              glossaryPath={gls.glossaryPath}
+              sourceFilePaths={gls.sourceFilePaths}
+              sourceFileFormats={gls.sourceFileFormats}
+              onGlossaryChange={gls.setGlossary}
+              currentContent={`${files.srcContent}\n${files.tgtContent}`}
+              prefillSrc={gls.glossaryPrefillSrc}
+              onPrefillConsumed={() => gls.setGlossaryPrefillSrc(null)}
+              prefillEntry={glossaryPrefillEntry}
+              onPrefillEntryConsumed={() => setGlossaryPrefillEntry(null)}
+              onSaveEdit={gls.saveEditEntry}
+              onSaveAdd={gls.saveAddEntry}
+              onSaveDelete={gls.saveDeleteEntry}
+            />
+          </ErrorBoundary>
         )}
 
         {hasAnyFile && app.aiPanelOpen && (
-          <AITranslatePanel
-            srcContent={files.srcContent}
-            savedConfig={app.aiConfig}
-            onConfigChange={app.handleAiConfigChange}
-            glossary={gls.glossary}
-            sourceFilePaths={gls.sourceFilePaths}
-            onAddEntries={gls.handleAddAiEntries}
-            onResult={handleAiResult}
-            stylePromptSnippet={styleProfile.getPromptSnippet()}
-            onPushParaphrase={handlePushParaphrase}
-            paraphraseInput={paraphraseInput}
-            onParaphraseInputConsumed={() => setParaphraseInput(null)}
-          />
+          <ErrorBoundary name="AITranslatePanel">
+            <AITranslatePanel
+              srcContent={files.srcContent}
+              savedConfig={app.aiConfig}
+              onConfigChange={app.handleAiConfigChange}
+              glossary={gls.glossary}
+              sourceFilePaths={gls.sourceFilePaths}
+              onAddEntries={gls.handleAddAiEntries}
+              onResult={handleAiResult}
+              stylePromptSnippet={styleProfile.getPromptSnippet()}
+              onPushParaphrase={handlePushParaphrase}
+              paraphraseInput={paraphraseInput}
+              onParaphraseInputConsumed={() => setParaphraseInput(null)}
+            />
+          </ErrorBoundary>
         )}
 
         {hasAnyFile && app.styleProfileOpen && (
-          <StyleProfilePanel
-            profile={styleProfile.profile}
-            isAnalyzing={styleProfile.isAnalyzing}
-            analyzeError={styleProfile.analyzeError}
-            apiKey={app.aiConfig.apiKey}
-            onAnalyze={() => styleProfile.analyze(app.aiConfig.apiKey)}
-            onClearCorrections={styleProfile.clearCorrections}
-            onResetProfile={styleProfile.resetProfile}
-            onClose={app.toggleStyleProfile}
-          />
+          <ErrorBoundary name="StyleProfilePanel">
+            <StyleProfilePanel
+              profile={styleProfile.profile}
+              isAnalyzing={styleProfile.isAnalyzing}
+              analyzeError={styleProfile.analyzeError}
+              apiKey={app.aiConfig.apiKey}
+              onAnalyze={() => styleProfile.analyze(app.aiConfig.apiKey)}
+              onClearCorrections={styleProfile.clearCorrections}
+              onResetProfile={styleProfile.resetProfile}
+              onClose={app.toggleStyleProfile}
+            />
+          </ErrorBoundary>
         )}
       </div>
 
       {/* Terminal */}
       {app.terminalOpen && (
-        <TerminalPanel
-          cwd={app.rootDir}
-          onClose={() => app.setTerminalOpen(false)}
-          ttsConfig={app.ttsConfig}
-          onTtsConfigChange={app.handleTtsConfigChange}
-          tgtPath={files.tgtPath}
-          tgtContent={files.tgtContent}
-        />
+        <ErrorBoundary name="TerminalPanel">
+          <TerminalPanel
+            cwd={app.rootDir}
+            onClose={() => app.setTerminalOpen(false)}
+            ttsConfig={app.ttsConfig}
+            onTtsConfigChange={app.handleTtsConfigChange}
+            tgtPath={files.tgtPath}
+            tgtContent={files.tgtContent}
+          />
+        </ErrorBoundary>
       )}
 
       {/* Status bar */}
@@ -577,6 +606,7 @@ export default function App(): JSX.Element {
         <GlossaryEditor
           file={gls.openGlossaryFile}
           onSave={gls.handleGlossaryEditorSave}
+          onSaveChanges={gls.saveGlossaryEditorChanges}
           onClose={() => gls.setOpenGlossaryFile(null)}
           onImportToSession={(entries) =>
             gls.handleGlossaryEditorImport(entries, gls.openGlossaryFile)
@@ -826,7 +856,7 @@ const FileLabel = memo(function FileLabel({
   onRenameChange: (v: string) => void
   onStartRenameTgt: () => void
   onStartRenameSrc: () => void
-  onCommitRename: (which: 'tgt' | 'src') => void
+  onCommitRename: (which: 'tgt' | 'src') => Promise<void>
   onCancelRename: () => void
 }) {
   if (!tgtPath) return <span style={{ color: 'var(--text2)', fontSize: 12 }}>No file open</span>
@@ -863,10 +893,10 @@ const FileLabel = memo(function FileLabel({
           value={renameValue}
           onChange={(e) => onRenameChange(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') onCommitRename('tgt')
+            if (e.key === 'Enter') onCommitRename('tgt').catch(console.error)
             if (e.key === 'Escape') onCancelRename()
           }}
-          onBlur={() => onCommitRename('tgt')}
+          onBlur={() => onCommitRename('tgt').catch(console.error)}
         />
       ) : (
         <span
@@ -894,10 +924,10 @@ const FileLabel = memo(function FileLabel({
               value={renameValue}
               onChange={(e) => onRenameChange(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') onCommitRename('src')
+                if (e.key === 'Enter') onCommitRename('src').catch(console.error)
                 if (e.key === 'Escape') onCancelRename()
               }}
-              onBlur={() => onCommitRename('src')}
+              onBlur={() => onCommitRename('src').catch(console.error)}
             />
           ) : (
             <span

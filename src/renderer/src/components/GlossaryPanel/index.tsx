@@ -1,6 +1,6 @@
 import { useState, memo, useMemo, useCallback, useEffect, useRef, JSX } from 'react'
 import type { GlossaryEntry, GlossaryFileFormat } from '../../types'
-import { serializeByFormat, hasNestedPaths, serializeToNested } from '../../utils/glossaryParsers'
+import { serializeGlossary, hasNestedPaths, serializeToNested } from '../../utils/glossaryParsers'
 import { EntryRow } from './EntryRow'
 import { EntryForm } from './EntryForm'
 import { DrillView } from './DrillView'
@@ -20,6 +20,14 @@ export interface GlossaryPanelProps {
   /** Entry ที่ต้องการเปิด edit form ทันที (จาก tooltip) */
   prefillEntry?: GlossaryEntry | null
   onPrefillEntryConsumed?: () => void
+  // Unified save actions from store
+  onSaveEdit?: (
+    updated: GlossaryEntry,
+    original: GlossaryEntry,
+    targetFile?: string
+  ) => Promise<void>
+  onSaveAdd?: (entry: GlossaryEntry, targetFile: string) => Promise<void>
+  onSaveDelete?: (original: GlossaryEntry) => Promise<void>
 }
 
 export const GlossaryPanel = memo(function GlossaryPanel({
@@ -33,7 +41,10 @@ export const GlossaryPanel = memo(function GlossaryPanel({
   prefillSrc,
   onPrefillConsumed,
   prefillEntry,
-  onPrefillEntryConsumed
+  onPrefillEntryConsumed,
+  onSaveEdit,
+  onSaveAdd,
+  onSaveDelete
 }: GlossaryPanelProps): JSX.Element {
   const [filter, setFilter] = useState('all')
   const [fileFilter, setFileFilter] = useState('all')
@@ -68,7 +79,7 @@ export const GlossaryPanel = memo(function GlossaryPanel({
     setAddInitialSrc(prefillSrc)
     setAddMode(true)
     onPrefillConsumed?.()
-  }, [prefillSrc]) // eslint-disable-line
+  }, [prefillSrc, onPrefillConsumed])
 
   // Auto-open inline edit when prefillEntry arrives (จาก tooltip ✎)
   useEffect(() => {
@@ -76,7 +87,7 @@ export const GlossaryPanel = memo(function GlossaryPanel({
     setInlineEditEntry(prefillEntry)
     setAddMode(false) // ปิด add form ถ้าเปิดอยู่
     onPrefillEntryConsumed?.()
-  }, [prefillEntry]) // eslint-disable-line
+  }, [prefillEntry, onPrefillEntryConsumed])
 
   // Auto-switch to flat when searching
   useEffect(() => {
@@ -145,7 +156,7 @@ export const GlossaryPanel = memo(function GlossaryPanel({
           Array.from(byFile.entries()).map(([fileName, entries]) =>
             window.electron.writeFile(
               sourceFilePaths[fileName],
-              serializeByFormat(entries, sourceFileFormats[fileName])
+              serializeGlossary(entries, sourceFileFormats[fileName])
             )
           )
         )
@@ -173,24 +184,30 @@ export const GlossaryPanel = memo(function GlossaryPanel({
       const tagged = targetFile ? { ...updated, _file: targetFile } : updated
       const next = glossary.map((g) => (g === orig ? tagged : g))
       onGlossaryChange(next)
-      if (targetFile && sourceFilePaths[targetFile]) {
+      if (onSaveEdit) {
         try {
-          const fileEntries = next.filter((g) => g._file === targetFile)
-          await window.electron.writeFile(
-            sourceFilePaths[targetFile],
-            serializeByFormat(fileEntries, sourceFileFormats[targetFile])
-          )
+          await onSaveEdit(tagged, orig, targetFile)
         } catch (e) {
           console.error('Auto-save after edit failed:', e)
         }
       }
     },
-    [glossary, onGlossaryChange, sourceFilePaths, sourceFileFormats]
+    [glossary, onGlossaryChange, onSaveEdit]
   )
 
   const handleDelete = useCallback(
-    (orig: GlossaryEntry) => onGlossaryChange(glossary.filter((g) => g !== orig)),
-    [glossary, onGlossaryChange]
+    async (orig: GlossaryEntry) => {
+      const next = glossary.filter((g) => g !== orig)
+      onGlossaryChange(next)
+      if (onSaveDelete) {
+        try {
+          await onSaveDelete(orig)
+        } catch (e) {
+          console.error('Auto-save after delete failed:', e)
+        }
+      }
+    },
+    [glossary, onGlossaryChange, onSaveDelete]
   )
 
   const handleAdd = useCallback(
@@ -203,21 +220,15 @@ export const GlossaryPanel = memo(function GlossaryPanel({
       onGlossaryChange(next)
       setAddMode(false)
       setAddInitialSrc('')
-      if (targetFile && sourceFilePaths[targetFile]) {
+      if (onSaveAdd) {
         try {
-          await window.electron.writeFile(
-            sourceFilePaths[targetFile],
-            serializeByFormat(
-              next.filter((g) => g._file === targetFile),
-              sourceFileFormats[targetFile]
-            )
-          )
+          await onSaveAdd(tagged, targetFile)
         } catch (e) {
           console.error('Auto-save after add failed:', e)
         }
       }
     },
-    [glossary, onGlossaryChange, sourceFilePaths, sourceFileFormats]
+    [glossary, onGlossaryChange, onSaveAdd]
   )
 
   // ── Export ────────────────────────────────────────────────────────────────
@@ -236,7 +247,7 @@ export const GlossaryPanel = memo(function GlossaryPanel({
       })
       if (!found.length) return
       const serialized = fileFilter
-        ? serializeByFormat(found, sourceFileFormats[fileFilter])
+        ? serializeGlossary(found, sourceFileFormats[fileFilter])
         : hasNestedPaths(found)
           ? serializeToNested(found)
           : JSON.stringify(found, null, 2)

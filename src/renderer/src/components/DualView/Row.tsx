@@ -1,7 +1,19 @@
-import { memo, useRef, useEffect, useLayoutEffect, useMemo, JSX } from 'react'
+import {
+  memo,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useCallback,
+  useState,
+  JSX
+} from 'react'
 import type { GlossaryEntry } from '../../types'
+import type { MatchedEntry } from '../../hooks/useAutocomplete'
 import { tokenize, HL_COLORS } from '../../utils/highlight'
 import { showTooltip, hideTooltip } from '../common/tooltipUtils'
+import { GlossaryAutocomplete } from '../common/GlossaryAutocomplete'
+import { useAutocomplete } from '../../hooks/useAutocomplete'
 import { buildRenderSegs } from './findHighlight'
 import type { FindRange, FindSeg } from './findHighlight'
 
@@ -149,11 +161,19 @@ export const Row = memo(function Row({
 
   const localUndoStack = useRef<string[]>([])
   const localRedoStack = useRef<string[]>([])
+
+  // Autocomplete state
+  const autocomplete = useAutocomplete(glossary)
+  const [acModified, setAcModified] = useState(false)
+
   useEffect(() => {
     if (isEditing) {
       localUndoStack.current = []
       localRedoStack.current = []
+      autocomplete.hide()
     }
+    // autocomplete.hide is stable (memoized), safe to include
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditing])
 
   const segments = useMemo(() => tokenize(text, glossary), [text, glossary])
@@ -208,10 +228,54 @@ export const Row = memo(function Row({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    const ta = e.currentTarget
+
+    // ── Autocomplete navigation ────────────────────────────────────────────
+    if (autocomplete.state.visible) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        autocomplete.selectPrev()
+        setAcModified(!acModified) // Trigger re-render
+        return
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        autocomplete.selectNext()
+        setAcModified(!acModified)
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        const selected = autocomplete.getSelected()
+        if (selected) {
+          // Replace word at cursor with selected entry (only the matched field)
+          const start = ta.selectionStart
+          const word = autocomplete.extractWordAtCursor(ta.value, start)
+          const wordStart = start - word.length
+          const insertText = selected.entry[selected.matchField]
+          const newValue = ta.value.slice(0, wordStart) + insertText + ta.value.slice(start)
+          ta.value = newValue
+          ta.dataset.prev = newValue
+          ta.setSelectionRange(wordStart + insertText.length, wordStart + insertText.length)
+          autocomplete.hide()
+          setAcModified(!acModified)
+          // Update undo stack
+          localUndoStack.current.push(text)
+          localRedoStack.current = []
+        }
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        autocomplete.hide()
+        setAcModified(!acModified)
+        return
+      }
+    }
+
     if (e.ctrlKey || e.metaKey) {
       if (e.code === 'KeyS') {
         e.preventDefault()
-        const ta = e.currentTarget
         if (ta.value !== text) onCommit(ta.value)
         suppressBlurRef.current = true
         onStopEdit()
@@ -225,7 +289,6 @@ export const Row = memo(function Row({
         e.stopPropagation()
         if (localUndoStack.current.length > 0) {
           e.preventDefault()
-          const ta = e.currentTarget
           localRedoStack.current.push(ta.value)
           const prev = localUndoStack.current.pop()!
           ta.value = prev
@@ -246,7 +309,6 @@ export const Row = memo(function Row({
         e.stopPropagation()
         if (localRedoStack.current.length > 0) {
           e.preventDefault()
-          const ta = e.currentTarget
           localUndoStack.current.push(ta.value)
           const next = localRedoStack.current.pop()!
           ta.value = next
@@ -264,7 +326,6 @@ export const Row = memo(function Row({
     }
     if (e.key === 'Enter') {
       e.preventDefault()
-      const ta = e.currentTarget
       suppressBlurRef.current = true
       onEnterPressed(ta.value.slice(0, ta.selectionStart), ta.value.slice(ta.selectionEnd))
       return
@@ -321,10 +382,65 @@ export const Row = memo(function Row({
       return
     }
     if (e.key === 'Escape') {
-      suppressBlurRef.current = true
-      onStopEdit()
+      if (autocomplete.state.visible) {
+        autocomplete.hide()
+        setAcModified(!acModified)
+      } else {
+        suppressBlurRef.current = true
+        onStopEdit()
+      }
     }
   }
+
+  // ── Handle input changes to trigger autocomplete ────────────────────────
+  const handleInput = (e: React.FormEvent<HTMLTextAreaElement>): void => {
+    const ta = e.currentTarget
+    const cursorPos = ta.selectionStart
+
+    // Get cursor position on screen for dropdown placement
+    const ta_rect = ta.getBoundingClientRect()
+    const cursorX = ta_rect.left + 10
+    const cursorY = ta_rect.top + 20
+
+    // Show autocomplete
+    autocomplete.show(ta.value, cursorPos, cursorX, cursorY)
+    setAcModified(!acModified)
+  }
+
+  // ── Handle autocomplete selection ──────────────────────────────────────
+  const handleAutocompleteSelect = useCallback(
+    (matched: MatchedEntry): void => {
+      if (!taRef.current) return
+      const ta = taRef.current
+      const start = ta.selectionStart
+      const word = autocomplete.extractWordAtCursor(ta.value, start)
+      const wordStart = start - word.length
+      // Insert only the matched field (src or th)
+      const insertText = matched.entry[matched.matchField]
+      const newValue = ta.value.slice(0, wordStart) + insertText + ta.value.slice(start)
+
+      ta.value = newValue
+      ta.dataset.prev = newValue
+      ta.setSelectionRange(wordStart + insertText.length, wordStart + insertText.length)
+      ta.focus()
+      autocomplete.hide()
+      setAcModified(!acModified)
+
+      // Update undo stack
+      localUndoStack.current.push(text)
+      localRedoStack.current = []
+    },
+    [autocomplete, text, acModified]
+  )
+
+  const handleAutocompleteHover = useCallback(
+    (index: number): void => {
+      // Update selected index on mouse hover
+      autocomplete.selectByIndex(index)
+      setAcModified(!acModified)
+    },
+    [autocomplete, acModified]
+  )
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     const pasted = e.clipboardData.getData('text')
@@ -420,41 +536,52 @@ export const Row = memo(function Row({
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         {editable && isEditing ? (
-          <textarea
-            ref={taRef}
-            defaultValue={text}
-            onChange={(e) => {
-              const ta = e.currentTarget,
-                prev = taRef.current?.dataset.prev ?? text
-              if (prev !== ta.value) {
-                localUndoStack.current.push(prev)
-                if (localUndoStack.current.length > 200) localUndoStack.current.shift()
-                localRedoStack.current = []
-                ta.dataset.prev = ta.value
-              }
-              ta.style.height = 'auto'
-              ta.style.height = ta.scrollHeight + 'px'
-            }}
-            onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            style={{
-              width: '100%',
-              padding: '5px 12px',
-              background: 'var(--bg2)',
-              border: '1px solid var(--accent)',
-              borderRadius: 0,
-              color: 'var(--text0)',
-              fontFamily: 'var(--font-ui)',
-              fontSize: 13,
-              lineHeight: 1.7,
-              resize: 'none',
-              outline: 'none',
-              boxSizing: 'border-box',
-              height: 'auto',
-              overflow: 'hidden'
-            }}
-          />
+          <>
+            <textarea
+              ref={taRef}
+              defaultValue={text}
+              onChange={(e) => {
+                const ta = e.currentTarget,
+                  prev = taRef.current?.dataset.prev ?? text
+                if (prev !== ta.value) {
+                  localUndoStack.current.push(prev)
+                  if (localUndoStack.current.length > 200) localUndoStack.current.shift()
+                  localRedoStack.current = []
+                  ta.dataset.prev = ta.value
+                }
+                ta.style.height = 'auto'
+                ta.style.height = ta.scrollHeight + 'px'
+              }}
+              onBlur={handleBlur}
+              onKeyDown={handleKeyDown}
+              onInput={handleInput}
+              onPaste={handlePaste}
+              style={{
+                width: '100%',
+                padding: '5px 12px',
+                background: 'var(--bg2)',
+                border: '1px solid var(--accent)',
+                borderRadius: 0,
+                color: 'var(--text0)',
+                fontFamily: 'var(--font-ui)',
+                fontSize: 13,
+                lineHeight: 1.7,
+                resize: 'none',
+                outline: 'none',
+                boxSizing: 'border-box',
+                height: 'auto',
+                overflow: 'hidden'
+              }}
+            />
+            <GlossaryAutocomplete
+              visible={autocomplete.state.visible}
+              matches={autocomplete.state.matches}
+              selectedIndex={autocomplete.state.selectedIndex}
+              cursorPos={autocomplete.state.cursorPos}
+              onSelect={handleAutocompleteSelect}
+              onMouseEnter={handleAutocompleteHover}
+            />
+          </>
         ) : (
           <div
             style={{

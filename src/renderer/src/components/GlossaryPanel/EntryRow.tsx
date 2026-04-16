@@ -136,7 +136,15 @@ export const EntryRow = memo(function EntryRow({
               alignItems: 'center',
               fontSize: 11
             }}
-            onClick={() => onDelete(entry)}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `ต้องการลบ "${entry.src}" ใช่หรือไม่?\n\nเมื่อลบแล้วจะไม่สามารถกู้คืนได้`
+                )
+              ) {
+                onDelete(entry)
+              }
+            }}
             title="Delete"
           >
             ✕

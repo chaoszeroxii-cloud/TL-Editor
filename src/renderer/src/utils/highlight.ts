@@ -21,11 +21,12 @@ function resolveColor(type: string): ColorDef {
 }
 
 /** Proxy — any string key returns a ColorDef (never undefined) */
-export const HL_COLORS = new Proxy({} as Record<string, ColorDef>, {
-  get(_: unknown, type: string) {
+export const HL_COLORS: Record<string, ColorDef> = new Proxy({} as Record<string, ColorDef>, {
+  get(_: unknown, type: string | symbol) {
+    if (typeof type !== 'string') return undefined
     return resolveColor(type)
   }
-})
+}) as Record<string, ColorDef>
 
 // ─── Segment types ────────────────────────────────────────────────────────────
 

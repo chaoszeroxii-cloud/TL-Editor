@@ -1,9 +1,12 @@
 import { ipcMain, app } from 'electron'
 import { existsSync } from 'fs'
 import fs from 'fs'
+import { promises as fsPromises } from 'fs'
 import { exec } from 'child_process'
 import * as dotenv from 'dotenv'
 import * as path from 'path'
+import keytar from 'keytar'
+import { approveConfigPaths, approvePath } from './pathAccess'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,10 +28,34 @@ export interface AppConfig {
   ttsOutputPath?: string
 }
 
+// ─── Keytar helpers (secure credential storage) ───────────────────────────────
+
+const SERVICE_NAME = 'translation-editor'
+
+export async function saveApiKey(account: string, key: string): Promise<void> {
+  try {
+    await keytar.setPassword(SERVICE_NAME, account, key)
+  } catch (err) {
+    console.error(`Failed to save API key to keychain: ${err}`)
+    // Keytar might fail on some systems; gracefully continue
+  }
+}
+
+export async function loadApiKey(account: string): Promise<string | null> {
+  try {
+    return await keytar.getPassword(SERVICE_NAME, account)
+  } catch (err) {
+    console.error(`Failed to load API key from keychain: ${err}`)
+    return null
+  }
+}
+
 // ─── Config path ──────────────────────────────────────────────────────────────
 
 export function getConfigPath(): string {
-  return path.join(app.getPath('userData'), 'config.json')
+  const configPath = path.join(app.getPath('userData'), 'config.json')
+  approvePath(configPath)
+  return configPath
 }
 
 export function loadConfig(): AppConfig {
@@ -60,8 +87,14 @@ export function loadConfig(): AppConfig {
 // ─── IPC handlers ─────────────────────────────────────────────────────────────
 
 export function registerConfigHandlers(): void {
-  ipcMain.handle('get-env-config', () => {
+  ipcMain.handle('get-env-config', async () => {
     const cfg = loadConfig()
+    approveConfigPaths(cfg)
+
+    // Load API keys from keychain (with fallback to config for migration)
+    const aiApiKey = (await loadApiKey('openrouter-key')) ?? cfg.aiApiKey ?? ''
+    const ttsApiKey = (await loadApiKey('novel-tts-key')) ?? cfg.ttsApiKey ?? ''
+
     return {
       folderPath: cfg.folderPath ?? null,
       pythonExe: cfg.pythonExe ?? null,
@@ -69,12 +102,12 @@ export function registerConfigHandlers(): void {
       pythonCwd: cfg.pythonCwd ?? null,
       jsonPaths: cfg.jsonPaths ?? [],
       hasConfig: existsSync(getConfigPath()),
-      aiApiKey: cfg.aiApiKey ?? '',
+      aiApiKey,
       aiPromptPath: cfg.aiPromptPath ?? '',
       aiGlossaryPath: cfg.aiGlossaryPath ?? '',
       // TTS fields
       ttsApiUrl: cfg.ttsApiUrl ?? 'https://novelttsapi.onrender.com',
-      ttsApiKey: cfg.ttsApiKey ?? '',
+      ttsApiKey,
       ttsVoiceGender: cfg.ttsVoiceGender ?? 'Female',
       ttsVoiceName: cfg.ttsVoiceName ?? '',
       ttsRate: cfg.ttsRate ?? '+35%',
@@ -83,7 +116,43 @@ export function registerConfigHandlers(): void {
   })
 
   ipcMain.handle('save-config', async (_e, cfg: AppConfig) => {
-    fs.writeFileSync(getConfigPath(), JSON.stringify(cfg, null, 2), 'utf-8')
+    approveConfigPaths(cfg)
+
+    // Save API keys to keychain (not to config.json)
+    if (cfg.aiApiKey) {
+      await saveApiKey('openrouter-key', cfg.aiApiKey)
+    }
+    if (cfg.ttsApiKey) {
+      await saveApiKey('novel-tts-key', cfg.ttsApiKey)
+    }
+
+    // Remove API keys from config before saving to file
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { aiApiKey, ttsApiKey, ...safeCfg } = cfg
+    await fsPromises.writeFile(getConfigPath(), JSON.stringify(safeCfg, null, 2), 'utf-8')
+  })
+
+  // Atomic patch save: read current config, merge patch, write back
+  // This prevents race conditions when multiple components save config simultaneously
+  ipcMain.handle('save-config-patch', async (_e, patch: Partial<AppConfig>) => {
+    approveConfigPaths(patch)
+
+    // Save API keys to keychain if included in patch
+    if (patch.aiApiKey) {
+      await saveApiKey('openrouter-key', patch.aiApiKey)
+    }
+    if (patch.ttsApiKey) {
+      await saveApiKey('novel-tts-key', patch.ttsApiKey)
+    }
+
+    const configPath = getConfigPath()
+    const current = existsSync(configPath) ? loadConfig() : {}
+
+    // Merge patch, but remove API keys before saving
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { aiApiKey, ttsApiKey, ...safePatch } = patch
+    const merged: AppConfig = { ...current, ...safePatch }
+    await fsPromises.writeFile(configPath, JSON.stringify(merged, null, 2), 'utf-8')
   })
 
   ipcMain.handle('detect-python', async () => {
