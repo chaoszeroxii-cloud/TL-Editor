@@ -86,8 +86,6 @@ export function useCorrectionCapture({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-    // Only re-run when content actually changes — tgtPath/onCapture are read via refs
-    // // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tgtContent])
 }
 

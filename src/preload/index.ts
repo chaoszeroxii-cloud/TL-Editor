@@ -1,13 +1,21 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+const eventChannels = new Set(['run-command:stdout', 'run-command:stderr'])
+
 contextBridge.exposeInMainWorld('electron', {
   getEnvConfig: () => ipcRenderer.invoke('get-env-config'),
-  saveConfig: (cfg) => ipcRenderer.invoke('save-config', cfg),
+  saveConfig: (cfg: unknown) => ipcRenderer.invoke('save-config', cfg),
+  saveConfigPatch: (patch: unknown) => ipcRenderer.invoke('save-config-patch', patch),
   detectPython: () => ipcRenderer.invoke('detect-python'),
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
-  on: (channel: string, cb: (...args: unknown[]) => void) => ipcRenderer.on(channel, cb),
-  off: (channel: string, cb: (...args: unknown[]) => void) =>
-    ipcRenderer.removeListener(channel, cb),
+  on: (channel: string, cb: (...args: unknown[]) => void) => {
+    if (!eventChannels.has(channel)) throw new Error(`Unsupported event channel: ${channel}`)
+    ipcRenderer.on(channel, cb)
+  },
+  off: (channel: string, cb: (...args: unknown[]) => void) => {
+    if (!eventChannels.has(channel)) return
+    ipcRenderer.removeListener(channel, cb)
+  },
   readTree: (dirPath: string) => ipcRenderer.invoke('fs:readTree', dirPath),
   readFile: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath),
   readFileOptional: (filePath: string) => ipcRenderer.invoke('fs:readFileOptional', filePath),
@@ -24,6 +32,9 @@ contextBridge.exposeInMainWorld('electron', {
   saveAudioFile: (base64: string, defaultName: string, outputDir?: string) =>
     ipcRenderer.invoke('fs:saveAudioFile', base64, defaultName, outputDir),
   runCommand: (cmd: string, cwd?: string) => ipcRenderer.invoke('run-command', cmd, cwd),
+  killProcess: () => ipcRenderer.invoke('kill-process'),
+  installPythonPackages: (exePath: string, packages: string[]) =>
+    ipcRenderer.invoke('install-python-packages', exePath, packages),
   runPython: (code: string, cwd?: string) => ipcRenderer.invoke('run-python', code, cwd),
   readGlossary: (dirPath: string) => ipcRenderer.invoke('fs:readGlossary', dirPath),
   getPairedPath: (srcPath: string) => ipcRenderer.invoke('fs:getPairedPath', srcPath),
@@ -58,5 +69,12 @@ contextBridge.exposeInMainWorld('electron', {
   ) => ipcRenderer.invoke('tts-stream', text, options),
   // Save TTS audio to file
   saveTtsAudio: (base64: string, filename: string, outputDir: string) =>
-    ipcRenderer.invoke('saveTtsAudio', base64, filename, outputDir)
+    ipcRenderer.invoke('saveTtsAudio', base64, filename, outputDir),
+  // Cancel in-flight network request by ID
+  cancelNetworkRequest: (requestId: string) =>
+    ipcRenderer.invoke('cancel-network-request', requestId),
+  // Health check handlers for TTS API (keep-alive)
+  startHealthCheck: (config?: { enabled?: boolean; intervalMs?: number; apiUrl?: string }) =>
+    ipcRenderer.invoke('start-health-check', config),
+  stopHealthCheck: () => ipcRenderer.invoke('stop-health-check')
 })

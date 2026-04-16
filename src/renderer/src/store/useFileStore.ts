@@ -61,7 +61,7 @@ export interface FileStore {
   // ── Rename ─────────────────────────────────────────────
   startRenameTgt: () => void
   startRenameSrc: () => void
-  commitRename: (which: 'tgt' | 'src') => Promise<void>
+  commitRename: (which: 'tgt' | 'src') => Promise<string | null>
   cancelRename: () => void
 }
 
@@ -126,22 +126,26 @@ export function useFileStore(): FileStore {
 
   // ── TGT handlers ──────────────────────────────────────────────────────────
 
-  const handleTgtChange = useCallback(
-    (content: string) => {
-      const cur = tgtContentRef.current
-      if (cur !== content) {
+  const handleTgtChange = useCallback((content: string) => {
+    // Use state setter callback to ensure we capture the correct previous content
+    // This avoids stale closure issues with rapid edits/pastes
+    setTgtContent((prevContent) => {
+      if (prevContent !== content) {
         const last = tgtUndoStack.current[tgtUndoStack.current.length - 1]
-        if (last !== cur) {
-          tgtUndoStack.current.push(cur)
-          if (tgtUndoStack.current.length > UNDO_LIMIT) tgtUndoStack.current.shift()
+        // Only add to undo if this is a new change (last !== prevContent)
+        if (last !== prevContent) {
+          tgtUndoStack.current.push(prevContent)
+          if (tgtUndoStack.current.length > UNDO_LIMIT) {
+            tgtUndoStack.current.shift()
+          }
         }
       }
+      // Clear redo stack on any new change
       tgtRedoStack.current = []
-      _setTgtContent(content)
       setIsDirty(true)
-    },
-    [_setTgtContent]
-  )
+      return content
+    })
+  }, [])
 
   const handleUndo = useCallback(() => {
     const prev = tgtUndoStack.current.pop()
@@ -173,22 +177,26 @@ export function useFileStore(): FileStore {
 
   // ── SRC handlers ──────────────────────────────────────────────────────────
 
-  const handleSrcChange = useCallback(
-    (content: string) => {
-      const cur = srcContentRef.current
-      if (cur !== content) {
+  const handleSrcChange = useCallback((content: string) => {
+    // Use state setter callback to ensure we capture the correct previous content
+    // This avoids stale closure issues with rapid edits/pastes
+    setSrcContent((prevContent) => {
+      if (prevContent !== content) {
         const last = srcUndoStack.current[srcUndoStack.current.length - 1]
-        if (last !== cur) {
-          srcUndoStack.current.push(cur)
-          if (srcUndoStack.current.length > UNDO_LIMIT) srcUndoStack.current.shift()
+        // Only add to undo if this is a new change (last !== prevContent)
+        if (last !== prevContent) {
+          srcUndoStack.current.push(prevContent)
+          if (srcUndoStack.current.length > UNDO_LIMIT) {
+            srcUndoStack.current.shift()
+          }
         }
       }
+      // Clear redo stack on any new change
       srcRedoStack.current = []
-      _setSrcContent(content)
       setSrcIsDirty(true)
-    },
-    [_setSrcContent]
-  )
+      return content
+    })
+  }, [])
 
   const handleSrcUndo = useCallback(() => {
     const prev = srcUndoStack.current.pop()
@@ -274,29 +282,52 @@ export function useFileStore(): FileStore {
   }, [])
 
   const commitRename = useCallback(
-    async (which: 'tgt' | 'src') => {
+    async (which: 'tgt' | 'src'): Promise<string | null> => {
       const oldPath = which === 'tgt' ? tgtPathRef.current : srcPathRef.current
       if (!oldPath || !renameValue.trim()) {
         setRenamingTgt(false)
         setRenamingSrc(false)
-        return
+        return null
       }
       const dir = oldPath.replace(/[\\/][^\\/]+$/, '')
       const newPath = `${dir}/${renameValue.trim()}`
       if (newPath === oldPath) {
         setRenamingTgt(false)
         setRenamingSrc(false)
-        return
+        return null
       }
 
-      const content = which === 'tgt' ? tgtContentRef.current : srcContentRef.current
-      await window.electron.writeFile(newPath, content)
-      if (which === 'tgt') _setTgtPath(newPath)
-      else _setSrcPath(newPath)
-      setRenamingTgt(false)
-      setRenamingSrc(false)
+      try {
+        // Save current content to old path first if dirty, then rename
+        const isDirtyNow = which === 'tgt' ? isDirty : srcIsDirty
+        if (isDirtyNow) {
+          const content = which === 'tgt' ? tgtContentRef.current : srcContentRef.current
+          await window.electron.writeFile(oldPath, content)
+        }
+
+        // Perform actual file rename on disk (not write to new path)
+        await window.electron.moveFile(oldPath, newPath)
+
+        // Update path reference
+        if (which === 'tgt') {
+          _setTgtPath(newPath)
+          setIsDirty(false)
+        } else {
+          _setSrcPath(newPath)
+          setSrcIsDirty(false)
+        }
+
+        setRenamingTgt(false)
+        setRenamingSrc(false)
+        return newPath
+      } catch (error) {
+        console.error('[commitRename] Failed to rename', { oldPath, newPath, error })
+        setRenamingTgt(false)
+        setRenamingSrc(false)
+        return null
+      }
     },
-    [renameValue, _setTgtPath, _setSrcPath]
+    [renameValue, _setTgtPath, _setSrcPath, isDirty, srcIsDirty]
   )
 
   const cancelRename = useCallback(() => {

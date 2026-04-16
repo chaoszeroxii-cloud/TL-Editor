@@ -21,13 +21,20 @@ export const TranslatePopup = memo(function TranslatePopup({
   const [error, setError] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: popup.x, top: popup.y + 16 })
+  const requestIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
     setError(null)
+    requestIdRef.current = null
     ;(async () => {
       try {
-        const data = (await window.electron.translate(popup.selectedText)) as [string, string][][]
+        const response = (await window.electron.translate(popup.selectedText)) as {
+          requestId: string
+          data: string
+        }
+        requestIdRef.current = response.requestId
+        const data = JSON.parse(response.data) as [string, string][][]
         setResult(
           (data[0] || [])
             .map((chunk) => chunk[0] ?? '')
@@ -40,6 +47,13 @@ export const TranslatePopup = memo(function TranslatePopup({
         setLoading(false)
       }
     })()
+
+    return () => {
+      // Cancel translation request if still in flight
+      if (requestIdRef.current) {
+        window.electron.cancelNetworkRequest(requestIdRef.current).catch(() => {})
+      }
+    }
   }, [popup.selectedText])
 
   useEffect(() => {

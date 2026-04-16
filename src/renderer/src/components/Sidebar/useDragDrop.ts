@@ -94,7 +94,15 @@ interface UseDragDropReturn {
   onItemMouseDown: (e: React.MouseEvent, node: TreeNode, clickFn: () => void) => void
 }
 
-export function useDragDrop({ treeRef, onReorderTree, onFileMoved }): UseDragDropReturn {
+export function useDragDrop({
+  treeRef,
+  onReorderTree,
+  onFileMoved
+}: {
+  treeRef: React.MutableRefObject<TreeNode[] | null>
+  onReorderTree?: (nodes: TreeNode[]) => void
+  onFileMoved?: (dragPath: string, newPath: string) => Promise<void>
+}): UseDragDropReturn {
   const pendingNodeRef = useRef<TreeNode | null>(null)
   const pendingClickRef = useRef<(() => void) | null>(null)
   const startXYRef = useRef({ x: 0, y: 0 })
@@ -184,7 +192,7 @@ export function useDragDrop({ treeRef, onReorderTree, onFileMoved }): UseDragDro
       const dragNode = pendingNodeRef.current
       const cur = treeRef.current
 
-      if (dropRef.current) {
+      if (dropRef.current && cur) {
         const { path: targetPath, pos } = dropRef.current
         const dragPath = dragNode.path
         const safe = dragPath !== targetPath && !isAncestorOf(cur, dragPath, targetPath)

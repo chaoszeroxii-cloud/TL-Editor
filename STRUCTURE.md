@@ -105,6 +105,7 @@ src/
 ## Import Patterns
 
 ### Hooks
+
 ```ts
 import { useKeyboardShortcuts, useAutoImport, findTranslationPair } from '../hooks'
 // or directly:
@@ -112,12 +113,14 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 ```
 
 ### GlossaryEditor
+
 ```ts
 import { GlossaryEditor } from './components/GlossaryEditor'
 import { parseGlossaryFile, serializeByFormat } from './components/GlossaryEditor/parsers'
 ```
 
 ### AITranslatePanel
+
 ```ts
 import { AITranslatePanel } from './components/AITranslatePanel'
 import type { AITranslateConfig } from './components/AITranslatePanel'
@@ -127,6 +130,7 @@ import { NewEntryReview } from './components/AITranslatePanel/NewEntryReview'
 ```
 
 ### Terminal
+
 ```ts
 import { TerminalPanel } from './components/Terminal'
 // subcomponents:
@@ -135,6 +139,7 @@ import type { OutputLine } from './components/Terminal/OutputView'
 ```
 
 ### JsonManager
+
 ```ts
 import { JsonRawEditorModal } from './components/JsonManager'
 // syntax util:
@@ -142,12 +147,14 @@ import { highlightJson } from './components/JsonManager/syntaxHighlight'
 ```
 
 ### AudioPlayer
+
 ```ts
 import { AudioPlayer } from './components/AudioPlayer'
 import { VolSlider } from './components/AudioPlayer/VolSlider'
 ```
 
 ### Common
+
 ```ts
 import { Tooltip, showTooltip, hideTooltip } from './components/common/Tooltip'
 import { FindBar } from './components/common/FindBar'
@@ -155,12 +162,14 @@ import type { FindBarProps } from './components/common/FindBar'
 ```
 
 ### GlossaryPanel helpers
+
 ```ts
 import { CascadingPathSelect, buildPathTree } from './components/GlossaryPanel/CascadingPathSelect'
 import type { PathTree } from './components/GlossaryPanel/CascadingPathSelect'
 ```
 
 ### Setup
+
 ```ts
 import { SetupWizard } from './components/setup/SetupWizard'
 import type { SetupConfig } from './components/setup/SetupWizard'
@@ -170,20 +179,20 @@ import type { SetupConfig } from './components/setup/SetupWizard'
 
 ## What Changed vs Original
 
-| Original File | Split Into |
-|---|---|
-| `AITranslatePanel.tsx` | `AITranslatePanel/index.tsx` + `extractNewEntries.ts` + `NewEntryReview.tsx` |
-| `AudioPlayer.tsx` | `AudioPlayer/index.tsx` + `VolSlider.tsx` |
-| `GlossaryEditor.tsx` | `GlossaryEditor/index.tsx` + `parsers.ts` |
-| `GlossaryPanel.tsx` | unchanged + `GlossaryPanel/CascadingPathSelect.tsx` extracted |
-| `JsonRawEditorModal.tsx` | `JsonManager/JsonRawEditorModal.tsx` + `syntaxHighlight.ts` |
-| `TerminalPanel.tsx` | `Terminal/index.tsx` + `OutputView.tsx` + `ScriptPathInput.tsx` + `PythonTab.tsx` |
-| `Tooltip.tsx` | `common/Tooltip.tsx` (moved, imports fixed) |
-| `SetupWizard.tsx` | `setup/SetupWizard.tsx` (moved) |
-| *(App.tsx keyboard handlers)* | `hooks/useKeyboardShortcuts.ts` |
-| *(App.tsx file pairing logic)* | `hooks/useChapterPairing.ts` |
-| *(App.tsx JSON auto-import)* | `hooks/useAutoImport.ts` |
-| *(new shared component)* | `common/FindBar.tsx` (replaces duplicate FindBar in DualView + JsonManager) |
+| Original File                  | Split Into                                                                        |
+| ------------------------------ | --------------------------------------------------------------------------------- |
+| `AITranslatePanel.tsx`         | `AITranslatePanel/index.tsx` + `extractNewEntries.ts` + `NewEntryReview.tsx`      |
+| `AudioPlayer.tsx`              | `AudioPlayer/index.tsx` + `VolSlider.tsx`                                         |
+| `GlossaryEditor.tsx`           | `GlossaryEditor/index.tsx` + `parsers.ts`                                         |
+| `GlossaryPanel.tsx`            | unchanged + `GlossaryPanel/CascadingPathSelect.tsx` extracted                     |
+| `JsonRawEditorModal.tsx`       | `JsonManager/JsonRawEditorModal.tsx` + `syntaxHighlight.ts`                       |
+| `TerminalPanel.tsx`            | `Terminal/index.tsx` + `OutputView.tsx` + `ScriptPathInput.tsx` + `PythonTab.tsx` |
+| `Tooltip.tsx`                  | `common/Tooltip.tsx` (moved, imports fixed)                                       |
+| `SetupWizard.tsx`              | `setup/SetupWizard.tsx` (moved)                                                   |
+| _(App.tsx keyboard handlers)_  | `hooks/useKeyboardShortcuts.ts`                                                   |
+| _(App.tsx file pairing logic)_ | `hooks/useChapterPairing.ts`                                                      |
+| _(App.tsx JSON auto-import)_   | `hooks/useAutoImport.ts`                                                          |
+| _(new shared component)_       | `common/FindBar.tsx` (replaces duplicate FindBar in DualView + JsonManager)       |
 
 ---
 

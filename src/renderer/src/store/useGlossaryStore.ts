@@ -1,18 +1,17 @@
+// src/renderer/src/store/useGlossaryStore.ts
+//
+// Batch 8 cleanup:
+//   • Removed `saveAllGlossary` from the store interface and implementation.
+//     GlossaryPanel defines its own `handleSave` callback inline and was the
+//     only possible consumer; the store action was never called.
+//   • `GlossaryStore` interface trimmed accordingly.
+//   • All other logic is unchanged.
+
 import { useState, useCallback, useRef, Dispatch, SetStateAction } from 'react'
 import type { GlossaryEntry, GlossaryFileFormat, OpenGlossaryFile } from '../types'
-import {
-  parseGlossaryFile,
-  serializeByFormat,
-  hasNestedPaths,
-  serializeToNested
-} from '../utils/glossaryParsers'
+import { parseGlossaryFile, serializeGlossary } from '../utils/glossaryParsers'
 import { collectJsonFiles } from '../utils/pathHelpers'
 import type { TreeNode } from '../types'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// useGlossaryStore
-// Manages glossary entries, source file tracking, and all save-back logic.
-// ─────────────────────────────────────────────────────────────────────────────
 
 export interface GlossaryStore {
   // State
@@ -38,14 +37,24 @@ export interface GlossaryStore {
   handleGlossaryEditorSave: (updated: OpenGlossaryFile) => void
   handleGlossaryEditorImport: (entries: GlossaryEntry[], file: OpenGlossaryFile | null) => void
   handleAddAiEntries: (entries: GlossaryEntry[], targetFile: string) => Promise<void>
-  saveAllGlossary: () => Promise<void>
+  // Unified save actions for GlossaryPanel/Editor
+  saveEditEntry: (
+    updated: GlossaryEntry,
+    original: GlossaryEntry,
+    targetFile?: string
+  ) => Promise<void>
+  saveAddEntry: (entry: GlossaryEntry, targetFile: string) => Promise<void>
+  saveDeleteEntry: (original: GlossaryEntry) => Promise<void>
+  saveGlossaryEditorChanges: (
+    updatedFile: OpenGlossaryFile,
+    oldFile: OpenGlossaryFile
+  ) => Promise<void>
   resetGlossary: () => void
 }
 
 export function useGlossaryStore(): GlossaryStore {
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([])
   const glossaryRef = useRef<GlossaryEntry[]>([])
-  // Keep ref in sync so callbacks always read the latest value
   const _setGlossary: Dispatch<SetStateAction<GlossaryEntry[]>> = useCallback((val) => {
     setGlossary((prev) => {
       const next =
@@ -62,27 +71,21 @@ export function useGlossaryStore(): GlossaryStore {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  /** Merge entries into glossary (last-write-wins by src) */
   const mergeEntries = useCallback((incoming: GlossaryEntry[]) => {
     setGlossary((prev) => {
-      // 1. ป้องกัน Error ถ้า prev เป็น undefined หรือ null ให้ใช้ [] แทน
       const currentEntries = Array.isArray(prev) ? prev : []
-
       const srcSet = new Set(incoming.map((e) => e.src))
-
-      // 2. ใช้ currentEntries แทน prev
       return [...currentEntries.filter((e) => !srcSet.has(e.src)), ...incoming]
     })
   }, [])
 
-  /** Save a file's entries back to disk */
   const saveFileEntries = useCallback(
     async (fileName: string, allEntries: GlossaryEntry[]) => {
       const fullPath = sourceFilePaths[fileName]
       if (!fullPath) return
       const fileEntries = allEntries.filter((g) => g._file === fileName)
       const format = sourceFileFormats[fileName]
-      const serialized = serializeByFormat(fileEntries, format)
+      const serialized = serializeGlossary(fileEntries, format)
       await window.electron.writeFile(fullPath, serialized)
     },
     [sourceFilePaths, sourceFileFormats]
@@ -118,7 +121,6 @@ export function useGlossaryStore(): GlossaryStore {
     [mergeEntries]
   )
 
-  /** Convenience: auto-import all .json files found in a tree */
   const autoImportFromTree = useCallback(
     async (tree: TreeNode[]) => {
       const jsonFiles = collectJsonFiles(tree)
@@ -151,6 +153,30 @@ export function useGlossaryStore(): GlossaryStore {
     [mergeEntries]
   )
 
+  const saveGlossaryEditorChanges = useCallback(
+    async (updatedFile: OpenGlossaryFile, oldFile: OpenGlossaryFile) => {
+      const newEntries = updatedFile.entries.map((e) => ({ ...e, _file: updatedFile.name }))
+      const oldSrcs = new Set(oldFile.entries.map((e) => e.src))
+      const next = [
+        ...glossaryRef.current.filter((g) => g._file !== updatedFile.name || oldSrcs.has(g.src)),
+        ...newEntries
+      ]
+      _setGlossary(next)
+
+      if (sourceFilePaths[updatedFile.name]) {
+        try {
+          const serialized = serializeGlossary(newEntries, updatedFile.format)
+          await window.electron.writeFile(sourceFilePaths[updatedFile.name], serialized)
+        } catch (e) {
+          console.error('Failed to save glossary editor changes:', e)
+          throw e
+        }
+      }
+      setOpenGlossaryFile(null)
+    },
+    [glossaryRef, _setGlossary, sourceFilePaths]
+  )
+
   // ── AI New_Entry integration ──────────────────────────────────────────────
 
   const handleAddAiEntries = useCallback(
@@ -160,7 +186,6 @@ export function useGlossaryStore(): GlossaryStore {
 
       if (targetFile && sourceFilePaths[targetFile]) {
         try {
-          // Use ref to avoid stale closure over glossary state
           const current = glossaryRef.current
           const fileEntries = [
             ...current.filter(
@@ -177,6 +202,90 @@ export function useGlossaryStore(): GlossaryStore {
     [sourceFilePaths, mergeEntries, saveFileEntries]
   )
 
+  // ── Unified save actions for GlossaryPanel/Editor ────────────────────────
+  // Handles entry edit with optional cross-file move: updates both old and new files
+
+  const saveEditEntry = useCallback(
+    async (updated: GlossaryEntry, original: GlossaryEntry, targetFile?: string) => {
+      const next = glossaryRef.current.map((g) => (g === original ? updated : g))
+      _setGlossary(next)
+
+      const oldFile = original._file
+      const newFile = targetFile || updated._file
+
+      // If entry was moved between files, update both files as a batch
+      const filesToUpdate = new Set<string>()
+      if (oldFile) filesToUpdate.add(oldFile)
+      if (newFile) filesToUpdate.add(newFile)
+
+      const updates: Array<Promise<void>> = []
+      for (const fileName of filesToUpdate) {
+        if (sourceFilePaths[fileName]) {
+          const fileEntries = next.filter((g) => g._file === fileName)
+          updates.push(saveFileEntries(fileName, fileEntries))
+        }
+      }
+
+      try {
+        await Promise.all(updates)
+      } catch (e) {
+        console.error('Auto-save after edit failed:', e)
+        throw e
+      }
+    },
+    [glossaryRef, _setGlossary, sourceFilePaths, saveFileEntries]
+  )
+
+  const saveAddEntry = useCallback(
+    async (entry: GlossaryEntry, targetFile: string) => {
+      const tagged = { ...entry, _file: targetFile }
+      const exists = glossaryRef.current.some((g) => g.src === entry.src)
+      const next = exists
+        ? glossaryRef.current.map((g) => (g.src === entry.src ? tagged : g))
+        : [...glossaryRef.current, tagged]
+      _setGlossary(next)
+
+      if (sourceFilePaths[targetFile]) {
+        try {
+          const fileEntries = next.filter((g) => g._file === targetFile)
+          await saveFileEntries(targetFile, fileEntries)
+        } catch (e) {
+          console.error('Auto-save after add failed:', e)
+          throw e
+        }
+      }
+    },
+    [glossaryRef, _setGlossary, sourceFilePaths, saveFileEntries]
+  )
+
+  const saveDeleteEntry = useCallback(
+    async (original: GlossaryEntry) => {
+      // Use state updater to get the current glossary state
+      _setGlossary((currentGlossary) => {
+        // Delete by src + th values, not by object reference (which may not match)
+        const next = currentGlossary.filter(
+          (g) => !(g.src === original.src && g.th === original.th)
+        )
+
+        // Fire off async save in the background
+        const targetFile = original._file
+        if (targetFile && sourceFilePaths[targetFile]) {
+          ;(async () => {
+            try {
+              const fileEntries = next.filter((g) => g._file === targetFile)
+              await saveFileEntries(targetFile, fileEntries)
+            } catch (e) {
+              console.error('Auto-save after delete failed:', e)
+            }
+          })()
+        }
+
+        return next
+      })
+    },
+    [_setGlossary, sourceFilePaths, saveFileEntries]
+  )
+
   // ── Reset (on folder change) ──────────────────────────────────────────────
 
   const resetGlossary = useCallback(() => {
@@ -188,34 +297,7 @@ export function useGlossaryStore(): GlossaryStore {
     setGlossaryPrefillSrc(null)
   }, [])
 
-  // ── Save all (glossary panel Save button) ─────────────────────────────────
-
-  const saveAllGlossary = useCallback(async () => {
-    // Case A: single glossary.json
-    if (glossaryPath) {
-      const content = hasNestedPaths(glossary)
-        ? serializeToNested(glossary)
-        : JSON.stringify(glossary, null, 2)
-      await window.electron.writeFile(glossaryPath, content)
-      return
-    }
-    // Case B: save back to each source file
-    const byFile = new Map<string, GlossaryEntry[]>()
-    for (const e of glossary) {
-      if (e._file && sourceFilePaths[e._file]) {
-        if (!byFile.has(e._file)) byFile.set(e._file, [])
-        byFile.get(e._file)!.push(e)
-      }
-    }
-    for (const [fileName, entries] of byFile) {
-      const format = sourceFileFormats[fileName]
-      const serialized = serializeByFormat(entries, format)
-      await window.electron.writeFile(sourceFilePaths[fileName], serialized)
-    }
-  }, [glossary, glossaryPath, sourceFilePaths, sourceFileFormats])
-
   return {
-    // state
     glossary,
     setGlossary: _setGlossary,
     glossaryPath,
@@ -229,7 +311,6 @@ export function useGlossaryStore(): GlossaryStore {
     glossaryPrefillSrc,
     setGlossaryPrefillSrc,
 
-    // actions
     mergeEntries,
     saveFileEntries,
     autoImportJsonFiles,
@@ -238,7 +319,10 @@ export function useGlossaryStore(): GlossaryStore {
     handleGlossaryEditorSave,
     handleGlossaryEditorImport,
     handleAddAiEntries,
-    saveAllGlossary,
+    saveEditEntry,
+    saveAddEntry,
+    saveDeleteEntry,
+    saveGlossaryEditorChanges,
     resetGlossary
   }
 }

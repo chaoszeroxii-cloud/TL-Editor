@@ -55,8 +55,24 @@ export function useStyleProfileStore(rootDir: string | null): StyleProfileStore 
   const profileRef = useRef(profile)
   profileRef.current = profile
 
-  // ── Persist to disk ───────────────────────────────────────────────────────
+  // ── Persist on every profile change ──────────────────────────────────────
+  // Using useEffect instead of calling persist() inside setState updaters.
+  // This guarantees: (a) React state is fully committed before the write,
+  // (b) no React "pure updater" rule violation, (c) the write happens on
+  // every render cycle where profile changed (not just the first microtask).
+  const lastPersistedRef = useRef<string>('')
+  useEffect(() => {
+    if (!profile || !rootDir) return
+    const json = JSON.stringify(profile, null, 2)
+    if (json === lastPersistedRef.current) return
+    lastPersistedRef.current = json
+    // Inline persist to avoid function dependency
+    window.electron
+      .writeFile(getStyleProfilePath(rootDir), json)
+      .catch((e) => console.warn('StyleProfile: persist failed', e))
+  }, [profile, rootDir])
 
+  // Separated persist function for explicit calls (if needed elsewhere)
   const persist = useCallback(
     async (p: StyleProfile) => {
       if (!rootDir) return
@@ -69,20 +85,6 @@ export function useStyleProfileStore(rootDir: string | null): StyleProfileStore 
     },
     [rootDir]
   )
-
-  // ── Persist on every profile change ──────────────────────────────────────
-  // Using useEffect instead of calling persist() inside setState updaters.
-  // This guarantees: (a) React state is fully committed before the write,
-  // (b) no React "pure updater" rule violation, (c) the write happens on
-  // every render cycle where profile changed (not just the first microtask).
-  const lastPersistedRef = useRef<string>('')
-  useEffect(() => {
-    if (!profile || !rootDir) return
-    const json = JSON.stringify(profile, null, 2)
-    if (json === lastPersistedRef.current) return
-    lastPersistedRef.current = json
-    persist(profile)
-  }, [profile, persist, rootDir])
 
   const loadProfile = useCallback((raw: StyleProfile) => {
     setProfile(raw)
