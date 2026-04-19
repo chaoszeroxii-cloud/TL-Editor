@@ -5,6 +5,7 @@ import type { TtsApiConfig } from './TTSApiTab'
 import type { OutputLine } from './OutputView'
 import { IcoTerminal, IcoTrash, IcoStop, IcoClose, IcoChevronUp } from '../common/icons'
 import { loadGlossariesFromConfig, type GlossaryLibraries } from '../../utils/glossaryLoader'
+import type { ToneName } from '../../constants/tones'
 
 type PanelTab = 'terminal' | 'tts'
 
@@ -33,6 +34,12 @@ interface TerminalPanelProps {
   tgtPath?: string | null
   /** TGT file content for TTS generation */
   tgtContent?: string
+  /** Callback to get tone for line index */
+  getLineTone?: (lineIndex: number) => ToneName
+  /** Glossaries for TTS (before/after libs) */
+  tgsGlossaries?: Record<string, Record<string, string>>
+  /** Called when TTS audio is successfully generated */
+  onPlayTtsAudio?: (blob: Blob) => void
 }
 
 export function TerminalPanel({
@@ -41,7 +48,10 @@ export function TerminalPanel({
   ttsConfig,
   onTtsConfigChange,
   tgtPath,
-  tgtContent
+  tgtContent,
+  getLineTone,
+  tgsGlossaries,
+  onPlayTtsAudio
 }: TerminalPanelProps): JSX.Element {
   const [tab, setTab] = useState<PanelTab>('tts')
   const [lines, setLines] = useState<OutputLine[]>([])
@@ -425,6 +435,9 @@ export function TerminalPanel({
             tgtContent={tgtContent}
             tgtPath={tgtPath}
             glossaryPaths={glossaryPaths}
+            getLineTone={getLineTone}
+            tgsGlossaries={tgsGlossaries}
+            onPlayTtsAudio={onPlayTtsAudio}
           />
         )}
       </div>

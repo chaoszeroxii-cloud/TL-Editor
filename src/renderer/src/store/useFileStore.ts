@@ -27,6 +27,15 @@ export interface FileStore {
   mp3Path: string | null
   setMp3Path: Dispatch<SetStateAction<string | null>>
 
+  lineMetadata: Record<number, { tone: string; voiceGender: string; voiceName?: string }>
+  setLineMetadata: Dispatch<
+    SetStateAction<Record<number, { tone: string; voiceGender: string; voiceName?: string }>>
+  >
+  getLineTone: (lineIndex: number) => string
+  setLineTone: (lineIndex: number, tone: string) => void
+  getLineVoiceGender: (lineIndex: number) => string
+  setLineVoiceGender: (lineIndex: number, gender: string) => void
+
   renamingTgt: boolean
   renamingSrc: boolean
   renameValue: string
@@ -118,6 +127,9 @@ export function useFileStore(): FileStore {
   const [nextSlot, setNextSlot] = useState<'tgt' | 'src'>('tgt')
   const [activeRow, setActiveRow] = useState(-1)
   const [mp3Path, setMp3Path] = useState<string | null>(null)
+  const [lineMetadata, setLineMetadata] = useState<
+    Record<number, { tone: string; voiceGender: string; voiceName?: string }>
+  >({})
 
   // ── Rename state ──────────────────────────────────────────────────────────
   const [renamingTgt, setRenamingTgt] = useState(false)
@@ -261,6 +273,7 @@ export function useFileStore(): FileStore {
     setSrcIsDirty(false)
     setNextSlot('tgt')
     setActiveRow(-1)
+    setLineMetadata({})
     tgtUndoStack.current = []
     tgtRedoStack.current = []
     srcUndoStack.current = []
@@ -335,6 +348,36 @@ export function useFileStore(): FileStore {
     setRenamingSrc(false)
   }, [])
 
+  // ── Line Metadata helpers ────────────────────────────────────────────────
+
+  const getLineTone = useCallback(
+    (lineIndex: number): string => {
+      return lineMetadata[lineIndex]?.tone || 'normal'
+    },
+    [lineMetadata]
+  )
+
+  const setLineTone = useCallback((lineIndex: number, tone: string) => {
+    setLineMetadata((prev) => ({
+      ...prev,
+      [lineIndex]: { ...prev[lineIndex], tone }
+    }))
+  }, [])
+
+  const getLineVoiceGender = useCallback(
+    (lineIndex: number): string => {
+      return lineMetadata[lineIndex]?.voiceGender || 'Female'
+    },
+    [lineMetadata]
+  )
+
+  const setLineVoiceGender = useCallback((lineIndex: number, gender: string) => {
+    setLineMetadata((prev) => ({
+      ...prev,
+      [lineIndex]: { ...prev[lineIndex], voiceGender: gender }
+    }))
+  }, [])
+
   // ── Expose refs for event-handler use in App ──────────────────────────────
 
   return {
@@ -352,6 +395,8 @@ export function useFileStore(): FileStore {
     setActiveRow,
     mp3Path,
     setMp3Path,
+    lineMetadata,
+    setLineMetadata,
     renamingTgt,
     renamingSrc,
     renameValue,
@@ -387,6 +432,12 @@ export function useFileStore(): FileStore {
     startRenameTgt,
     startRenameSrc,
     commitRename,
-    cancelRename
+    cancelRename,
+
+    // line metadata helpers
+    getLineTone,
+    setLineTone,
+    getLineVoiceGender,
+    setLineVoiceGender
   }
 }

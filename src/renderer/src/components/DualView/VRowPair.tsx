@@ -2,6 +2,7 @@ import { memo, useRef, useCallback, JSX } from 'react'
 import type { GlossaryEntry } from '../../types'
 import { Row, ROW_H } from './Row'
 import type { FindRange } from './findHighlight'
+import type { ToneName, VoiceGender } from '../../constants/tones'
 
 export interface VRowPairProps {
   rowIndex: number
@@ -38,6 +39,10 @@ export interface VRowPairProps {
   tgtFindRanges?: FindRange[]
   srcFindRanges?: FindRange[]
   splitPos?: number
+  tone?: ToneName
+  onToneChange?: (tone: ToneName) => void
+  voiceGender?: VoiceGender
+  onVoiceGenderChange?: (gender: VoiceGender) => void
 }
 
 export const VRowPair = memo(function VRowPair({
@@ -74,7 +79,11 @@ export const VRowPair = memo(function VRowPair({
   navDir,
   tgtFindRanges,
   srcFindRanges,
-  splitPos = 50
+  splitPos = 50,
+  tone = 'normal',
+  onToneChange,
+  voiceGender = 'female',
+  onVoiceGenderChange
 }: VRowPairProps): JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null)
 
@@ -112,11 +121,12 @@ export const VRowPair = memo(function VRowPair({
   const isTgtEditing = isEditing && editingCol === 'tgt'
   const isSrcEditing = isEditing && editingCol === 'src'
 
-  const cellStyle = { minWidth: 0, borderRight: '1px solid var(--border)', overflow: 'hidden' }
+  const cellStyle = { minWidth: 0, borderRight: '1px solid var(--border)' }
 
   return (
     <div
       ref={wrapRef}
+      data-row-index={rowIndex}
       data-row={rowIndex}
       style={{ display: 'flex', minHeight: ROW_H, borderBottom: '1px solid rgba(46,51,64,0.5)' }}
     >
@@ -146,6 +156,10 @@ export const VRowPair = memo(function VRowPair({
           navCol={isTgtEditing ? navCol : null}
           navDir={isTgtEditing ? navDir : null}
           findRanges={tgtFindRanges}
+          tone={tone}
+          onToneChange={onToneChange}
+          voiceGender={voiceGender}
+          onVoiceGenderChange={onVoiceGenderChange}
         />
       </div>
 

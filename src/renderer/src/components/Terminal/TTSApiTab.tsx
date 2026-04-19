@@ -2,9 +2,11 @@
 // TTS API settings panel — replaces PythonTab in TerminalPanel
 // Uses Novel TTS API (https://novelttsapi.onrender.com) with streaming support
 
-import { useState, useRef, JSX } from 'react'
+import { useState, useRef, JSX, useCallback } from 'react'
 import type { GlossaryLibraries } from '../../utils/glossaryLoader'
 import { filterUsedGlossariesFromRecord } from '../../utils/ttsPreprocess'
+import { TONE_CONFIGS, type ToneName } from '../../constants/tones'
+import { IcoMusic, IcoNetwork } from '../common/exports'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,6 +27,9 @@ interface TTSApiTabProps {
   tgtContent?: string
   tgtPath?: string | null
   glossaryPaths?: { atPath?: string; bfPath?: string }
+  getLineTone?: (lineIndex: number) => ToneName
+  tgsGlossaries?: Record<string, Record<string, string>>
+  onPlayTtsAudio?: (blob: Blob) => void
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -35,7 +40,9 @@ export function TTSApiTab({
   glossaries,
   tgtContent,
   tgtPath,
-  glossaryPaths
+  glossaryPaths,
+  getLineTone,
+  onPlayTtsAudio
 }: TTSApiTabProps): JSX.Element {
   const [showKey, setShowKey] = useState(false)
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle')
@@ -43,6 +50,8 @@ export function TTSApiTab({
   const [testBlobUrl, setTestBlobUrl] = useState<string | null>(null)
   const [ttsStatus, setTtsStatus] = useState<'idle' | 'generating' | 'ok' | 'error'>('idle')
   const [ttsMsg, setTtsMsg] = useState('')
+  const [tonesStatus, setTonesToStatus] = useState<'idle' | 'generating' | 'ok' | 'error'>('idle')
+  const [tonesMsg, setTonesToMsg] = useState('')
   const [showGlossaries, setShowGlossaries] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -106,6 +115,108 @@ export function TTSApiTab({
       setTestMsg(e instanceof Error ? e.message.slice(0, 160) : String(e))
     }
   }
+
+  const generateWithTones = useCallback(async (): Promise<void> => {
+    if (!tgtContent?.trim() || !getLineTone) {
+      setTonesToMsg('ไม่มีข้อมูล TGT หรือ tone metadata')
+      return
+    }
+
+    setTonesToStatus('generating')
+    setTonesToMsg('กำลังสร้างเสียง per-line...')
+
+    // Filter glossaries to only include terms found in target content
+    const filteredBfLib = filterUsedGlossariesFromRecord(tgtContent, glossaries?.bf_lib)
+    const filteredAtLib = filterUsedGlossariesFromRecord(tgtContent, glossaries?.at_lib)
+
+    try {
+      const apiUrl = (config.apiUrl || 'https://novelttsapi.onrender.com').trim()
+      const lines = tgtContent.split('\n').filter((line) => line.trim())
+      const ttsLines = lines.map((text, idx) => {
+        const toneName = getLineTone(idx)
+        const toneConfig = TONE_CONFIGS[toneName] || TONE_CONFIGS['normal']
+        return {
+          text,
+          tone: toneConfig,
+          voice_gender: config.voiceGender || 'Female',
+          voice_name: config.voiceName || null
+        }
+      })
+
+      const request = {
+        lines: ttsLines,
+        bf_lib: filteredBfLib,
+        at_lib: filteredAtLib,
+        lang: 'th'
+      }
+
+      const response = await fetch(`${apiUrl}/generate-multi`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request)
+      })
+
+      if (!response.ok) {
+        const errText = await response.text()
+        throw new Error(`Novel TTS API Error (${response.status}): ${errText}`)
+      }
+
+      const audioBlob = await response.blob()
+      console.log('TTS audio generated successfully:', {
+        size: audioBlob.size,
+        type: audioBlob.type
+      })
+
+      // Play the audio
+      if (onPlayTtsAudio) {
+        onPlayTtsAudio(audioBlob)
+      }
+
+      // Save the file if outputPath is set
+      if (config.outputPath?.trim()) {
+        try {
+          const reader = new FileReader()
+          reader.onload = async () => {
+            const base64 = (reader.result as string).split(',')[1]
+            const filename = tgtPath
+              ? `${tgtPath
+                  .split(/[\\/]/)
+                  .pop()
+                  ?.replace(/\.[^.]+$/, '')}-tones.mp3`
+              : `voice-tones.mp3`
+
+            await window.electron.saveTtsAudio(base64, filename, config.outputPath)
+            setTonesToStatus('ok')
+            setTonesToMsg(`✓ เสียงสร้างและบันทึก: ${filename}`)
+            setTimeout(() => setTonesToMsg(''), 3000)
+          }
+          reader.readAsDataURL(audioBlob)
+        } catch {
+          setTonesToStatus('ok')
+          setTonesToMsg('✓ เสียงสร้างเรียบร้อย (ไม่สามารถบันทึก)')
+          setTimeout(() => setTonesToMsg(''), 3000)
+        }
+      } else {
+        setTonesToStatus('ok')
+        setTonesToMsg('✓ เสียงสร้างเรียบร้อย (ยังไม่ได้บันทึก)')
+        setTimeout(() => setTonesToMsg(''), 3000)
+      }
+    } catch (e: unknown) {
+      setTonesToStatus('error')
+      setTonesToMsg(e instanceof Error ? e.message.slice(0, 160) : String(e))
+    }
+  }, [
+    tgtContent,
+    getLineTone,
+    glossaries?.bf_lib,
+    glossaries?.at_lib,
+    config.apiUrl,
+    config.outputPath,
+    config.voiceGender,
+    config.voiceName,
+    onPlayTtsAudio,
+    tgtPath
+  ])
 
   const generateAndSaveTts = async (): Promise<void> => {
     if (ttsStatus === 'generating') return
@@ -527,71 +638,210 @@ export function TTSApiTab({
 
       {divider}
 
-      {/* Generate & Save TTS button */}
-      <button
-        onClick={generateAndSaveTts}
-        disabled={
-          ttsStatus === 'generating' ||
-          !config.apiUrl.trim() ||
-          !tgtContent?.trim() ||
-          !config.outputPath?.trim()
-        }
+      <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
-          gap: 6,
-          background: ttsStatus === 'generating' ? 'var(--bg2)' : 'var(--bg3)',
-          border: `1px solid ${ttsStatus === 'generating' ? 'var(--border)' : 'rgba(62,207,160,0.45)'}`,
-          borderLeft: `3px solid ${ttsStatus === 'generating' ? 'var(--border)' : 'var(--hl-teal)'}`,
-          color: ttsStatus === 'generating' ? 'var(--text2)' : 'var(--hl-teal)',
-          fontSize: 11,
-          fontWeight: 600,
-          fontFamily: 'var(--font-mono)',
-          letterSpacing: '0.03em',
-          padding: '6px 10px',
-          borderRadius: 4,
-          cursor:
+          gap: 6
+        }}
+      >
+        {/* Generate & Save TTS button */}
+        <button
+          onClick={generateAndSaveTts}
+          disabled={
             ttsStatus === 'generating' ||
             !config.apiUrl.trim() ||
             !tgtContent?.trim() ||
             !config.outputPath?.trim()
-              ? 'not-allowed'
-              : 'pointer',
-          opacity:
-            !config.apiUrl.trim() || !tgtContent?.trim() || !config.outputPath?.trim() ? 0.4 : 1,
-          transition: 'all 0.15s ease'
-        }}
-        onMouseEnter={(e) => {
-          if (!e.currentTarget.disabled) {
-            e.currentTarget.style.background = 'rgba(62,207,160,0.1)'
           }
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background =
-            ttsStatus === 'generating' ? 'var(--bg2)' : 'var(--bg3)'
-        }}
-      >
-        {ttsStatus === 'generating' ? (
-          <>
-            <svg
-              width="9"
-              height="9"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }}
-            >
-              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-            </svg>
-            กำลังอ่านออกเสียง...
-          </>
-        ) : (
-          '▶  อ่านออกเสียง + บันทึก'
-        )}
-      </button>
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            flex: 1,
+            minWidth: 0,
+            background: ttsStatus === 'generating' ? 'var(--bg2)' : 'var(--bg3)',
+            border: `1px solid ${ttsStatus === 'generating' ? 'var(--border)' : 'rgba(62,207,160,0.45)'}`,
+            borderLeft: `3px solid ${ttsStatus === 'generating' ? 'var(--border)' : 'var(--hl-teal)'}`,
+            color: ttsStatus === 'generating' ? 'var(--text2)' : 'var(--hl-teal)',
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: 'var(--font-mono)',
+            letterSpacing: '0.03em',
+            padding: '6px 10px',
+            borderRadius: 4,
+            cursor:
+              ttsStatus === 'generating' ||
+              !config.apiUrl.trim() ||
+              !tgtContent?.trim() ||
+              !config.outputPath?.trim()
+                ? 'not-allowed'
+                : 'pointer',
+            opacity:
+              !config.apiUrl.trim() || !tgtContent?.trim() || !config.outputPath?.trim() ? 0.4 : 1,
+            transition: 'all 0.15s ease'
+          }}
+          onMouseEnter={(e) => {
+            if (!e.currentTarget.disabled) {
+              e.currentTarget.style.background = 'rgba(62,207,160,0.1)'
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background =
+              ttsStatus === 'generating' ? 'var(--bg2)' : 'var(--bg3)'
+          }}
+        >
+          {ttsStatus === 'generating' ? (
+            <>
+              <svg
+                width="9"
+                height="9"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }}
+              >
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+              กำลังอ่านออกเสียง...
+            </>
+          ) : (
+            '▶  อ่านออกเสียง + บันทึก'
+          )}
+        </button>
+
+        {/* Generate with Tones button (per-line TTS) */}
+        <button
+          onClick={generateWithTones}
+          disabled={
+            tonesStatus === 'generating' ||
+            !config.apiUrl.trim() ||
+            !tgtContent?.trim() ||
+            !getLineTone
+          }
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            flex: 1,
+            minWidth: 0,
+            background: tonesStatus === 'generating' ? 'var(--bg2)' : 'var(--bg3)',
+            border: `1px solid ${tonesStatus === 'generating' ? 'var(--border)' : 'rgba(62,207,160,0.45)'}`,
+            borderLeft: `3px solid ${tonesStatus === 'generating' ? 'var(--border)' : 'var(--hl-teal)'}`,
+            color: tonesStatus === 'generating' ? 'var(--text2)' : 'var(--hl-teal)',
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: 'var(--font-mono)',
+            letterSpacing: '0.03em',
+            padding: '6px 10px',
+            borderRadius: 4,
+            cursor:
+              tonesStatus === 'generating' ||
+              !config.apiUrl.trim() ||
+              !tgtContent?.trim() ||
+              !getLineTone
+                ? 'not-allowed'
+                : 'pointer',
+            opacity: !config.apiUrl.trim() || !tgtContent?.trim() || !getLineTone ? 0.4 : 1,
+            transition: 'all 0.15s ease'
+          }}
+          onMouseEnter={(e) => {
+            if (!e.currentTarget.disabled) {
+              e.currentTarget.style.background = 'rgba(62,207,160,0.1)'
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background =
+              tonesStatus === 'generating' ? 'var(--bg2)' : 'var(--bg3)'
+          }}
+          title="สร้างเสียง TTS แบบต่อบรรทัด โดยใช้โทนสีเสียงต่างๆ"
+        >
+          {tonesStatus === 'generating' ? (
+            <>
+              <svg
+                width="9"
+                height="9"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                style={{ animation: 'spin 1s linear infinite' }}
+              >
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 2.2" />
+              </svg>
+              กำลัง...
+            </>
+          ) : (
+            <>
+              <IcoMusic size={10} stroke="currentColor" />
+              Generate with Tones
+            </>
+          )}
+        </button>
+
+        {/* Test button */}
+        <button
+          onClick={testConnection}
+          disabled={testStatus === 'testing' || !config.apiUrl.trim()}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            flex: 1,
+            minWidth: 0,
+            background: testStatus === 'testing' ? 'var(--bg2)' : 'var(--bg3)',
+            border: `1px solid ${testStatus === 'testing' ? 'var(--border)' : 'rgba(91,138,240,0.45)'}`,
+            borderLeft: `3px solid ${testStatus === 'testing' ? 'var(--border)' : 'var(--accent)'}`,
+            color: testStatus === 'testing' ? 'var(--text2)' : 'var(--accent)',
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: 'var(--font-mono)',
+            letterSpacing: '0.03em',
+            padding: '6px 10px',
+            borderRadius: 4,
+            cursor: testStatus === 'testing' || !config.apiUrl.trim() ? 'not-allowed' : 'pointer',
+            opacity: !config.apiUrl.trim() ? 0.4 : 1,
+            transition: 'all 0.15s ease'
+          }}
+          onMouseEnter={(e) => {
+            if (!e.currentTarget.disabled) {
+              e.currentTarget.style.background = 'rgba(91,138,240,0.1)'
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background =
+              testStatus === 'testing' ? 'var(--bg2)' : 'var(--bg3)'
+          }}
+        >
+          {testStatus === 'testing' ? (
+            <>
+              <svg
+                width="9"
+                height="9"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }}
+              >
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+              กำลังทดสอบ...
+            </>
+          ) : (
+            <>
+              <IcoNetwork size={10} stroke="currentColor" />
+              ทดสอบการเชื่อมต่อ
+            </>
+          )}
+        </button>
+      </div>
 
       {/* TTS status */}
       {ttsMsg && (
@@ -628,60 +878,40 @@ export function TTSApiTab({
         </div>
       )}
 
-      {divider}
-
-      {/* Test button */}
-      <button
-        onClick={testConnection}
-        disabled={testStatus === 'testing' || !config.apiUrl.trim()}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 6,
-          background: testStatus === 'testing' ? 'var(--bg2)' : 'var(--bg3)',
-          border: `1px solid ${testStatus === 'testing' ? 'var(--border)' : 'rgba(91,138,240,0.45)'}`,
-          borderLeft: `3px solid ${testStatus === 'testing' ? 'var(--border)' : 'var(--accent)'}`,
-          color: testStatus === 'testing' ? 'var(--text2)' : 'var(--accent)',
-          fontSize: 11,
-          fontWeight: 600,
-          fontFamily: 'var(--font-mono)',
-          letterSpacing: '0.03em',
-          padding: '6px 10px',
-          borderRadius: 4,
-          cursor: testStatus === 'testing' || !config.apiUrl.trim() ? 'not-allowed' : 'pointer',
-          opacity: !config.apiUrl.trim() ? 0.4 : 1,
-          transition: 'all 0.15s ease'
-        }}
-        onMouseEnter={(e) => {
-          if (!e.currentTarget.disabled) {
-            e.currentTarget.style.background = 'rgba(91,138,240,0.1)'
-          }
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = testStatus === 'testing' ? 'var(--bg2)' : 'var(--bg3)'
-        }}
-      >
-        {testStatus === 'testing' ? (
-          <>
-            <svg
-              width="9"
-              height="9"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }}
-            >
-              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-            </svg>
-            กำลังทดสอบ...
-          </>
-        ) : (
-          '⚡ ทดสอบการเชื่อมต่อ'
-        )}
-      </button>
+      {/* Tones status */}
+      {tonesMsg && (
+        <div
+          style={{
+            padding: '5px 9px',
+            borderRadius: 5,
+            border: '1px solid',
+            fontSize: 10,
+            fontFamily: 'var(--font-mono)',
+            lineHeight: 1.5,
+            wordBreak: 'break-all',
+            background:
+              tonesStatus === 'error'
+                ? 'rgba(240,122,106,0.08)'
+                : tonesStatus === 'ok'
+                  ? 'rgba(62,207,160,0.08)'
+                  : 'var(--bg3)',
+            borderColor:
+              tonesStatus === 'error'
+                ? 'rgba(240,122,106,0.3)'
+                : tonesStatus === 'ok'
+                  ? 'rgba(62,207,160,0.3)'
+                  : 'var(--border)',
+            color:
+              tonesStatus === 'error'
+                ? 'var(--hl-coral)'
+                : tonesStatus === 'ok'
+                  ? 'var(--hl-teal)'
+                  : 'var(--text2)'
+          }}
+        >
+          {tonesMsg}
+        </div>
+      )}
 
       {/* Test status */}
       {testMsg && (
