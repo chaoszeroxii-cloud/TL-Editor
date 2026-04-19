@@ -134,7 +134,9 @@ export function TTSApiTab({
       const lines = tgtContent.split('\n').filter((line) => line.trim())
       const ttsLines = lines.map((text, idx) => {
         const toneName = getLineTone(idx)
-        const genderKey = (config.voiceGender?.toLowerCase() === 'female' ? 'female' : 'male') as VoiceGender
+        const genderKey = (
+          config.voiceGender?.toLowerCase() === 'female' ? 'female' : 'male'
+        ) as VoiceGender
         const toneConfig = getToneConfig(toneName, genderKey)
         return {
           text,
