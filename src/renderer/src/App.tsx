@@ -43,6 +43,7 @@ import { loadGlossariesFromConfig, type GlossaryLibraries } from './utils/glossa
 import { useCompactTopBar } from './hooks/useCompactTopBar'
 
 import type { SetupConfig } from './components/setup/SetupWizard'
+import type { ToneName, VoiceGender } from './constants/tones'
 
 import { IcoEdit, IcoFile, IcoTerminal, IcoSparkle } from './components/common/icons'
 
@@ -303,6 +304,15 @@ export default function App(): JSX.Element {
     [files, setAiContent]
   )
 
+  // ── TTS Audio Handler ──────────────────────────────────────────────────────────
+  const handlePlayTtsAudio = useCallback(
+    (blob: Blob) => {
+      const blobUrl = URL.createObjectURL(blob)
+      files.setMp3Path(blobUrl)
+    },
+    [files]
+  )
+
   const handlePushParaphrase = useCallback(
     (orig: string, result: string) => {
       const cur = files.tgtContentRef.current
@@ -370,12 +380,10 @@ export default function App(): JSX.Element {
     startTransition(() => setMatchCount(countMatches(content, gls.glossary)))
   }, [files.srcContent, files.tgtContent, gls.glossary])
 
-  const rowCount = useMemo(() => {
-    if (!files.tgtContent) return 0
-    let n = 1
-    for (let i = 0; i < files.tgtContent.length; i++) if (files.tgtContent[i] === '\n') n++
-    return n
-  }, [files.tgtContent])
+  const rowCount = useMemo(
+    () => (files.tgtContent ? files.tgtContent.split('\n').length : 0),
+    [files.tgtContent]
+  )
 
   const hasAnyFile = files.tgtPath !== null
   const jsonFileCount = Object.keys(gls.sourceFilePaths).length
@@ -389,7 +397,8 @@ export default function App(): JSX.Element {
         'Ctrl+G glossary',
         'Ctrl+R refresh',
         jsonFileCount > 0 ? 'Ctrl+J JSON' : '',
-        'Ctrl+⇧C copy TGT'
+        'Ctrl+⇧C copy TGT',
+        files.srcPath ? 'Ctrl+Alt+C copy SRC' : ''
       ]
         .filter(Boolean)
         .join('  ·  ')
@@ -492,6 +501,10 @@ export default function App(): JSX.Element {
                   ttsConfig={app.ttsConfig}
                   ttsGlossaries={ttsGlossaries}
                   onSaveTtsAudio={handleSaveTtsAudio}
+                  getLineTone={(idx) => files.getLineTone(idx) as ToneName}
+                  setLineTone={files.setLineTone}
+                  getLineVoiceGender={(idx) => files.getLineVoiceGender(idx) as VoiceGender}
+                  setLineVoiceGender={files.setLineVoiceGender}
                 />
               </ErrorBoundary>
             </>
@@ -569,6 +582,12 @@ export default function App(): JSX.Element {
             onTtsConfigChange={app.handleTtsConfigChange}
             tgtPath={files.tgtPath}
             tgtContent={files.tgtContent}
+            getLineTone={(idx) => files.getLineTone(idx) as ToneName}
+            tgsGlossaries={{
+              before: Object.fromEntries(gls.glossary.map((e) => [e.src, e.th])),
+              after: Object.fromEntries(gls.glossary.map((e) => [e.src, e.th]))
+            }}
+            onPlayTtsAudio={handlePlayTtsAudio}
           />
         </ErrorBoundary>
       )}

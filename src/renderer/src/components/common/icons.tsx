@@ -189,6 +189,26 @@ export const IcoMusic = ({ size, stroke }: IconProps = def()): JSX.Element => (
   </svg>
 )
 
+export const IcoNetwork = ({ size, stroke }: IconProps = def()): JSX.Element => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={stroke}
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <circle cx="18" cy="16" r="3" />
+    <circle cx="6" cy="8" r="3" />
+    <circle cx="18" cy="5" r="3" />
+
+    <path d="M9 9l5.89 3.11" />
+    <path d="M9 7.05l5.89-2.05" />
+  </svg>
+)
+
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
 export const IcoSave = ({ size, stroke }: IconProps = def()): JSX.Element => (
