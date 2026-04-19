@@ -18,47 +18,53 @@ const TONE_CONFIGS_FEMALE: Record<string, ToneConfig> = {
     rate_pct: '+35%',
     volume_pct: '+10%'
   },
+  // normal: {
+  //   tone_name: 'normal',
+  //   pitch_hz: '-5Hz',
+  //   rate_pct: '+35%',
+  //   volume_pct: '+10%'
+  // },
   angry: {
     tone_name: 'angry',
-    pitch_hz: '+15Hz',
-    rate_pct: '+20%',
-    volume_pct: '+35%'
+    pitch_hz: '+5Hz',
+    rate_pct: '+30%',
+    volume_pct: '+100%'
   },
   whisper: {
     tone_name: 'whisper',
-    pitch_hz: '-3Hz',
-    rate_pct: '-20%',
-    volume_pct: '-50%'
+    pitch_hz: '-8Hz',
+    rate_pct: '+10%',
+    volume_pct: '-25%'
   },
   sad: {
     tone_name: 'sad',
-    pitch_hz: '-8Hz',
-    rate_pct: '-15%',
-    volume_pct: '-15%'
+    pitch_hz: '-12Hz',
+    rate_pct: '+15%',
+    volume_pct: '-5%'
   },
   excited: {
     tone_name: 'excited',
     pitch_hz: '+10Hz',
-    rate_pct: '+25%',
+    rate_pct: '+50%',
     volume_pct: '+20%'
   },
   fearful: {
     tone_name: 'fearful',
-    pitch_hz: '+8Hz',
-    rate_pct: '+10%',
-    volume_pct: '-5%'
+    pitch_hz: '+3Hz',
+    rate_pct: '+45%',
+    volume_pct: '-10%'
   },
   serious: {
     tone_name: 'serious',
-    pitch_hz: '-4Hz',
-    rate_pct: '+10%',
-    volume_pct: '+15%'
+    pitch_hz: '-8Hz',
+    rate_pct: '+20%',
+    volume_pct: '+10%'
   },
   cold: {
     tone_name: 'cold',
-    pitch_hz: '-10Hz',
-    rate_pct: '-5%',
-    volume_pct: '-8%'
+    pitch_hz: '-15Hz',
+    rate_pct: '+15%',
+    volume_pct: '-5%'
   }
 }
 
