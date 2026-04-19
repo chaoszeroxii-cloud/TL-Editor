@@ -1,4 +1,4 @@
-# TL/EDITOR — Renderer Source Structure
+﻿# TL/EDITOR — Renderer Source Structure
 
 ## Complete File Tree
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, JSX } from 'react'
+﻿import { useState, useEffect, useCallback, JSX } from 'react'
 import type { GlossaryEntry, OpenGlossaryFile } from '../../types'
 import { IcoEditFile } from '../common/icons'
 

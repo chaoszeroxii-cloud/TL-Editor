@@ -1,4 +1,4 @@
-// ─── ttsPreprocess.ts ─────────────────────────────────────────────────────────
+﻿// ─── ttsPreprocess.ts ─────────────────────────────────────────────────────────
 // Pre-processes text before sending to edge-tts.
 // Replaces glossary terms with phonetic hints so TTS pronounces them correctly.
 //

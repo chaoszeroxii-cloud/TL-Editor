@@ -1,4 +1,4 @@
-import { JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
+﻿import { JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { GlossaryEntry } from '../../types'
 import { HL_COLORS } from '../../utils/highlight'
 import { editGlossaryEntry } from './tooltipUtils'

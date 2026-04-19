@@ -1,4 +1,4 @@
-// ─── useStyleProfileStore.ts ──────────────────────────────────────────────────
+﻿// ─── useStyleProfileStore.ts ──────────────────────────────────────────────────
 // React state hook for the style profile system.
 // Handles: persistence (via electron writeFile), correction capture,
 // AI analysis trigger, and exposing state to UI components.

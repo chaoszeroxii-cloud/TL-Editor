@@ -1,4 +1,4 @@
-# 🔍 PR Checklist: Code Review Fixes
+﻿# 🔍 PR Checklist: Code Review Fixes
 
 **This checklist tracks the implementation of all fixes identified in CODE_REVIEW.md**
 

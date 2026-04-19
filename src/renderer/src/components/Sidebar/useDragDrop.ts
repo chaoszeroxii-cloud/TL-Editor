@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+﻿import { useState, useRef, useCallback, useEffect } from 'react'
 import type { TreeNode } from '../../types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────

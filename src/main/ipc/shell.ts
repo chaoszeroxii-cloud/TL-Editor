@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow } from 'electron'
+﻿import { ipcMain, BrowserWindow } from 'electron'
 import { exec, ExecOptions, spawn } from 'child_process'
 import { assertPathAllowed } from './pathAccess'
 

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * icons.tsx
  * Single source of truth for all SVG icons used in the app.
  * Import what you need: import { IcoFolder, IcoFile } from '../common/icons'

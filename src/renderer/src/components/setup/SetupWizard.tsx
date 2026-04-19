@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SetupWizard — shown on first run when no config.json exists
  * 3 steps: Folder → Glossary JSON files → Python (optional)
  */

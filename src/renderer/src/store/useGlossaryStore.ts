@@ -1,4 +1,4 @@
-// src/renderer/src/store/useGlossaryStore.ts
+﻿// src/renderer/src/store/useGlossaryStore.ts
 //
 // Batch 8 cleanup:
 //   • Removed `saveAllGlossary` from the store interface and implementation.

@@ -1,4 +1,4 @@
-import { ipcMain, app } from 'electron'
+﻿import { ipcMain, app } from 'electron'
 import { existsSync } from 'fs'
 import fs from 'fs'
 import { promises as fsPromises } from 'fs'

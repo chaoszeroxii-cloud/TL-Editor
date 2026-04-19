@@ -1,4 +1,4 @@
-/**
+﻿/**
  * App.tsx — layout shell only (~150 lines)
  * All state lives in store hooks; keyboard shortcuts in useKeyboardShortcuts.
  */

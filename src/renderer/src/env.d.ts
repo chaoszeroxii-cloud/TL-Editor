@@ -1,4 +1,4 @@
-// src/renderer/src/env.d.ts
+﻿// src/renderer/src/env.d.ts
 //
 // Batch 8 cleanup (updated):
 //   • `ElectronAPI` is the single source of truth for the preload bridge.

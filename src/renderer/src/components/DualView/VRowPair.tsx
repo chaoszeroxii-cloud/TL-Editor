@@ -1,4 +1,4 @@
-import { memo, useRef, useCallback, JSX } from 'react'
+﻿import { memo, useRef, useCallback, JSX } from 'react'
 import type { GlossaryEntry } from '../../types'
 import { Row, ROW_H } from './Row'
 import type { FindRange } from './findHighlight'

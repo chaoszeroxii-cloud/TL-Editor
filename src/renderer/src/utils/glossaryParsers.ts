@@ -1,4 +1,4 @@
-import type { GlossaryEntry, GlossaryFileFormat, OpenGlossaryFile, GlossaryFormat } from '../types'
+﻿import type { GlossaryEntry, GlossaryFileFormat, OpenGlossaryFile, GlossaryFormat } from '../types'
 
 // ─── Default glossary format (Thai nested) ────────────────────────────────────
 

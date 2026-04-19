@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo, JSX } from 'react'
+﻿import { useState, useEffect, useCallback, useRef, useMemo, JSX } from 'react'
 import { highlightJson, escapeRe, getLineAt, lineStartPos } from './syntaxHighlight'
 import { IcoFileJson as IcoJson } from '../common/icons'
 

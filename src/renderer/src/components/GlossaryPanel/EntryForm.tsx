@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect, JSX } from 'react'
+﻿import { useState, useMemo, useCallback, useRef, useEffect, JSX } from 'react'
 import type { GlossaryEntry, GlossaryFileFormat } from '../../types'
 import { CascadingPathSelect } from './CascadingPathSelect'
 import { buildPathTree, type PathTree } from './CascadingPathSelect.utils'

@@ -1,4 +1,4 @@
-// Separate file to avoid Fast Refresh issues with exported constants
+﻿// Separate file to avoid Fast Refresh issues with exported constants
 import type { TtsApiConfig } from './TTSApiTab'
 
 export const DEFAULT_TTS_CONFIG: TtsApiConfig = {

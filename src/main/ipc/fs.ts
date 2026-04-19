@@ -1,4 +1,4 @@
-// src/main/ipc/fs.ts
+﻿// src/main/ipc/fs.ts
 import { ipcMain } from 'electron'
 import { join } from 'path'
 import { readdir, readFile, writeFile, stat } from 'fs/promises'

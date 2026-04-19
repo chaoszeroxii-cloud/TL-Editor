@@ -1,4 +1,4 @@
-export { Tooltip } from './Tooltip'
+﻿export { Tooltip } from './Tooltip'
 export { GlossaryAutocomplete } from './GlossaryAutocomplete'
 export type { GlossaryAutocompleteProps } from './GlossaryAutocomplete'
 export {

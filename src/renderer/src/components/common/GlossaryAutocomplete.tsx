@@ -1,4 +1,4 @@
-import { memo, JSX, useEffect, useRef } from 'react'
+﻿import { memo, JSX, useEffect, useRef } from 'react'
 import type { MatchedEntry } from '../../hooks/useAutocomplete'
 import { HL_COLORS } from '../../utils/highlight'
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, JSX } from 'react'
+﻿import { useState, useEffect, useRef, JSX } from 'react'
 import { IcoFile } from '../common/icons'
 
 interface ScriptPathInputProps {

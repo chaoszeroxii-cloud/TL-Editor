@@ -1,4 +1,4 @@
-// src/main/index.ts
+﻿// src/main/index.ts
 import { app, BrowserWindow, session, protocol, net } from 'electron'
 import { join } from 'path'
 import crypto from 'crypto'

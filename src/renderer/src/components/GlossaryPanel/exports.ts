@@ -1,4 +1,4 @@
-export { GlossaryPanel } from './index'
+﻿export { GlossaryPanel } from './index'
 export type { GlossaryPanelProps } from './index'
 export { CascadingPathSelect } from './CascadingPathSelect'
 export { buildPathTree } from './CascadingPathSelect.utils'

@@ -1,4 +1,4 @@
-import { ipcMain, dialog } from 'electron'
+﻿import { ipcMain, dialog } from 'electron'
 import { writeFile } from 'fs/promises'
 import { approvePath } from './pathAccess'
 

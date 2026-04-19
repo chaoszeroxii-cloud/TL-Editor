@@ -1,4 +1,4 @@
-import type { GlossaryEntry } from '../../types'
+﻿import type { GlossaryEntry } from '../../types'
 
 // Stable module-level functions — no hook needed, no new fn on every render
 let _hoveredEntry: GlossaryEntry | null = null

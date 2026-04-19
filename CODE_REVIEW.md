@@ -1,4 +1,4 @@
-# 🔍 Comprehensive Code Review: Translation Editor
+﻿# 🔍 Comprehensive Code Review: Translation Editor
 
 **วันที่รีวิว:** April 16, 2026 | **ระดับความจริงจัง:** Senior Architecture Level
 

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+﻿import { contextBridge, ipcRenderer } from 'electron'
 
 const eventChannels = new Set(['run-command:stdout', 'run-command:stderr'])
 

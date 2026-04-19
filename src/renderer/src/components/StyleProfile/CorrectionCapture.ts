@@ -1,4 +1,4 @@
-// ─── CorrectionCapture.ts ─────────────────────────────────────────────────────
+﻿// ─── CorrectionCapture.ts ─────────────────────────────────────────────────────
 // Lightweight hook that sits between useFileStore and useStyleProfileStore.
 // Watches for TGT content changes that look like manual corrections to AI output,
 // captures them, and forwards to the style profile store.

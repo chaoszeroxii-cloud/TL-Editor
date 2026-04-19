@@ -1,4 +1,4 @@
-// ─── diffEngine.ts ────────────────────────────────────────────────────────────
+﻿// ─── diffEngine.ts ────────────────────────────────────────────────────────────
 // Pure functions: compare before/after strings → DiffResult
 // No React, no side-effects, fully unit-testable.
 

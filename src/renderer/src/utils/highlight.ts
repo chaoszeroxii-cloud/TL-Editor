@@ -1,4 +1,4 @@
-import type { GlossaryEntry } from '../types'
+﻿import type { GlossaryEntry } from '../types'
 
 // ─── Color definitions ────────────────────────────────────────────────────────
 

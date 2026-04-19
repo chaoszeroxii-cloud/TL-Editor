@@ -1,4 +1,4 @@
-// src/renderer/src/components/AudioPlayer/index.tsx
+﻿// src/renderer/src/components/AudioPlayer/index.tsx
 //
 // Performance change (Batch 7):
 //   BEFORE  readAudioBuffer() → base64 string → Uint8Array → Blob → blob: URL

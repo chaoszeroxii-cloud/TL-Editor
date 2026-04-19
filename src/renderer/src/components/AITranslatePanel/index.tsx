@@ -1,4 +1,4 @@
-// ─── AITranslatePanel/index.tsx ──────────────────────────────────────────────
+﻿// ─── AITranslatePanel/index.tsx ──────────────────────────────────────────────
 // เพิ่ม tab "เกลา" และ prop onPushParaphrase สำหรับ find-replace ใน TGT
 
 import { useState, useCallback, useRef, useEffect, JSX } from 'react'

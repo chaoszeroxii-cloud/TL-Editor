@@ -1,4 +1,4 @@
-import { useState, memo, useMemo, useCallback, useEffect, useRef, JSX } from 'react'
+﻿import { useState, memo, useMemo, useCallback, useEffect, useRef, JSX } from 'react'
 import type { GlossaryEntry, GlossaryFileFormat } from '../../types'
 import { serializeGlossary, hasNestedPaths, serializeToNested } from '../../utils/glossaryParsers'
 import { EntryRow } from './EntryRow'

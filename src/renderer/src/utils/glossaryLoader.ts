@@ -1,4 +1,4 @@
-// ─── glossaryLoader.ts ─────────────────────────────────────────────────────
+﻿// ─── glossaryLoader.ts ─────────────────────────────────────────────────────
 // Loads glossaries (at_lib.json, bf_lib.json) from target directory
 // for TTS API integration
 

@@ -1,4 +1,4 @@
-import { ipcMain, net } from 'electron'
+﻿import { ipcMain, net } from 'electron'
 import type { ClientRequest } from 'electron'
 
 // ─── Error logging utility ─────────────────────────────────────────────────────

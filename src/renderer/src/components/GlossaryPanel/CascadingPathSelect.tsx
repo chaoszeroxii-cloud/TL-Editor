@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, JSX } from 'react'
+﻿import { useState, useEffect, useRef, JSX } from 'react'
 import type { PathTree } from './CascadingPathSelect.utils'
 
 // ─── CustomSelect ─────────────────────────────────────────────────────────────

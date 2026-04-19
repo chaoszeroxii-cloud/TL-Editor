@@ -1,4 +1,4 @@
-import { memo, useState, JSX } from 'react'
+﻿import { memo, useState, JSX } from 'react'
 import type { GlossaryEntry, GlossaryFileFormat } from '../../types'
 import { HL_COLORS } from '../../utils/highlight'
 import { EntryForm } from './EntryForm'

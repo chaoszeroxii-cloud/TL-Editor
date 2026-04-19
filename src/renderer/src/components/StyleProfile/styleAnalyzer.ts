@@ -1,4 +1,4 @@
-// ─── styleAnalyzer.ts ─────────────────────────────────────────────────────────
+﻿// ─── styleAnalyzer.ts ─────────────────────────────────────────────────────────
 // Sends corrections to AI → gets back structured style guide + prompt snippet.
 // Pure async functions, no React, no state.
 

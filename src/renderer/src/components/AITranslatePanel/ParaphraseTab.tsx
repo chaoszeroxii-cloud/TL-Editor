@@ -1,4 +1,4 @@
-// ─── ParaphraseTab.tsx ────────────────────────────────────────────────────────
+﻿// ─── ParaphraseTab.tsx ────────────────────────────────────────────────────────
 
 import { useState, useCallback, useMemo, useEffect, JSX } from 'react'
 import { IcoSparkle } from '../common/icons'

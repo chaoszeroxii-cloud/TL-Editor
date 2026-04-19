@@ -1,4 +1,4 @@
-// ─── TTSApiTab.tsx ─────────────────────────────────────────────────────────
+﻿// ─── TTSApiTab.tsx ─────────────────────────────────────────────────────────
 // TTS API settings panel — replaces PythonTab in TerminalPanel
 // Uses Novel TTS API (https://novelttsapi.onrender.com) with streaming support
 

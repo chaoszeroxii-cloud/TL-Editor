@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback, useMemo, memo, JSX } from 'react'
+﻿import { useRef, useState, useEffect, useCallback, useMemo, memo, JSX } from 'react'
 import type { GlossaryEntry } from '../../types'
 import { AudioPlayer } from '../AudioPlayer'
 import { FindBar } from './FindBar'

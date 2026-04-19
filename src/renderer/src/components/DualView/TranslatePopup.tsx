@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useLayoutEffect, useRef, JSX } from 'react'
+﻿import { memo, useState, useEffect, useLayoutEffect, useRef, JSX } from 'react'
 import { IcoX, IcoSpinner } from '../common/icons'
 
 interface TranslatePopupState {

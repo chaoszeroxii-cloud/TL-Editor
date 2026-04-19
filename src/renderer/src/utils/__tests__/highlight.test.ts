@@ -1,4 +1,4 @@
-import { tokenize, countMatches } from '../highlight'
+﻿import { tokenize, countMatches } from '../highlight'
 import type { GlossaryEntry } from '../../types'
 
 describe('highlight utility', () => {

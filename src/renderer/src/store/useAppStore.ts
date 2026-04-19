@@ -1,4 +1,4 @@
-// src/renderer/src/store/useAppStore.ts
+﻿// src/renderer/src/store/useAppStore.ts
 //
 // Batch 8 cleanup:
 //   • Removed `refreshTree` — it was identical to App.tsx's local `handleRefresh`
