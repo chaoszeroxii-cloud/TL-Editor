@@ -13,9 +13,12 @@ import type { MatchedEntry } from '../../hooks/useAutocomplete'
 import { tokenize, HL_COLORS } from '../../utils/highlight'
 import { showTooltip, hideTooltip } from '../common/tooltipUtils'
 import { GlossaryAutocomplete } from '../common/GlossaryAutocomplete'
+import { ToneSelector } from '../ToneSelector'
+import { VoiceGenderSelector } from '../VoiceGenderSelector'
 import { useAutocomplete } from '../../hooks/useAutocomplete'
 import { buildRenderSegs } from './findHighlight'
 import type { FindRange, FindSeg } from './findHighlight'
+import type { ToneName, VoiceGender } from '../../constants/tones'
 
 const ROW_H = 28
 
@@ -126,6 +129,10 @@ export interface RowProps {
   navDir: 'up' | 'down' | null
   findRanges?: FindRange[]
   isSrc?: boolean
+  tone?: ToneName
+  onToneChange?: (tone: ToneName) => void
+  voiceGender?: VoiceGender
+  onVoiceGenderChange?: (gender: VoiceGender) => void
 }
 
 export const Row = memo(function Row({
@@ -153,7 +160,11 @@ export const Row = memo(function Row({
   navCol,
   navDir,
   findRanges,
-  isSrc = false
+  isSrc = false,
+  tone = 'normal',
+  onToneChange,
+  voiceGender = 'female',
+  onVoiceGenderChange
 }: RowProps): JSX.Element {
   const taRef = useRef<HTMLTextAreaElement>(null)
   const suppressBlurRef = useRef(false)
@@ -534,6 +545,29 @@ export const Row = memo(function Row({
       >
         {rowNum}
       </div>
+      {!isSrc && tone && onToneChange && (
+        <div
+          style={{
+            flexShrink: 0,
+            display: 'flex',
+            gap: 4,
+            alignItems: 'center',
+            padding: '4px 6px',
+            borderRight: '1px solid var(--border)',
+            background: 'var(--bg1)',
+            minWidth: 'auto'
+          }}
+        >
+          <ToneSelector selectedTone={tone} onToneChange={onToneChange} compact={true} />
+          {onVoiceGenderChange && (
+            <VoiceGenderSelector
+              selectedGender={voiceGender}
+              onGenderChange={onVoiceGenderChange}
+              compact={true}
+            />
+          )}
+        </div>
+      )}
       <div style={{ flex: 1, minWidth: 0 }}>
         {editable && isEditing ? (
           <>

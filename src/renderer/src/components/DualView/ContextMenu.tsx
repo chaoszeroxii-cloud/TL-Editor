@@ -9,8 +9,9 @@ interface CtxMenuState {
 
 interface ContextMenuProps {
   menu: CtxMenuState
+  rowIndex?: number | null
   onTranslate: (text: string, x: number, y: number) => void
-  onTts: (text: string) => void
+  onTts: (text: string, rowIndex?: number | null) => void
   onAddToGlossary?: (text: string) => void
   onSendToParaphrase?: (text: string) => void
   onClose: () => void
@@ -18,6 +19,7 @@ interface ContextMenuProps {
 
 export const ContextMenu = memo(function ContextMenu({
   menu,
+  rowIndex,
   onTranslate,
   onTts,
   onAddToGlossary,
@@ -81,7 +83,7 @@ export const ContextMenu = memo(function ContextMenu({
       accent: false,
       icon: <IcoSpeaker size={12} stroke="var(--hl-coral)" />,
       action: () => {
-        onTts(menu.selectedText)
+        onTts(menu.selectedText, rowIndex)
         onClose()
       }
     },

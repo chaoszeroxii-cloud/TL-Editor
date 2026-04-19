@@ -10,6 +10,7 @@ import type { FindMatch, FindRange } from './findHighlight'
 import { filterUsedGlossariesFromRecord, preprocessForTts } from '../../utils/ttsPreprocess'
 import { hideTooltip } from '../common/tooltipUtils'
 import type { GlossaryLibraries } from '../../utils/glossaryLoader'
+import type { ToneName, VoiceGender } from '../../constants/tones'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -17,6 +18,7 @@ interface CtxMenuState {
   x: number
   y: number
   selectedText: string
+  rowIndex: number | null
 }
 interface TranslatePopupState {
   x: number
@@ -55,6 +57,10 @@ export interface DualViewProps {
   }
   ttsGlossaries?: GlossaryLibraries
   onSaveTtsAudio?: (base64: string, defaultName: string) => Promise<void>
+  getLineTone?: (lineIndex: number) => ToneName
+  setLineTone?: (lineIndex: number, tone: ToneName) => void
+  getLineVoiceGender?: (lineIndex: number) => VoiceGender
+  setLineVoiceGender?: (lineIndex: number, gender: VoiceGender) => void
 }
 
 // ─── ColHeader ────────────────────────────────────────────────────────────────
@@ -164,7 +170,11 @@ export function DualView({
   onSendToParaphrase,
   ttsConfig,
   ttsGlossaries,
-  onSaveTtsAudio
+  onSaveTtsAudio,
+  getLineTone,
+  setLineTone,
+  getLineVoiceGender,
+  setLineVoiceGender
 }: DualViewProps): JSX.Element {
   // ── Split column ────────────────────────────────────────────────────────────
   const [splitPos, setSplitPos] = useState(50)
@@ -211,11 +221,21 @@ export function DualView({
     const sel = window.getSelection()?.toString().trim()
     if (!sel) return
     e.preventDefault()
-    setCtxMenu({ x: e.clientX, y: e.clientY, selectedText: sel })
+
+    // Find which row was right-clicked
+    let rowIdx: number | null = null
+    const target = e.target as HTMLElement
+    const rowElem = target.closest('[data-row-index]')
+    if (rowElem) {
+      const idx = rowElem.getAttribute('data-row-index')
+      rowIdx = idx ? parseInt(idx, 10) : null
+    }
+
+    setCtxMenu({ x: e.clientX, y: e.clientY, selectedText: sel, rowIndex: rowIdx })
   }, [])
 
   const handleTts = useCallback(
-    async (text: string) => {
+    async (text: string, rowIndex?: number | null) => {
       if (ttsLoading) return
       setTtsLoading(true)
       setTtsBlobUrl((prev) => {
@@ -227,26 +247,62 @@ export function DualView({
         const processed = preprocessForTts(text, glossary)
         const filteredBfLib = filterUsedGlossariesFromRecord(text, ttsGlossaries?.bf_lib)
         const filteredAtLib = filterUsedGlossariesFromRecord(text, ttsGlossaries?.at_lib)
-        const ttsResponse = await window.electron.tts(processed, {
-          apiUrl: ttsConfig?.apiUrl,
-          apiKey: ttsConfig?.apiKey,
-          voiceGender: ttsConfig?.voiceGender,
-          voiceName: ttsConfig?.voiceName || undefined,
-          rate: ttsConfig?.rate,
-          bf_lib: filteredBfLib,
-          at_lib: filteredAtLib
-        })
-        const base64 = ttsResponse.data
-        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
-        setTtsBlobUrl(URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' })))
-        setTtsBytes(base64)
+
+        // If rowIndex is provided and we have getLineTone, use Novel TTS API with per-line tone
+        if (rowIndex !== undefined && rowIndex !== null && getLineTone && ttsConfig?.apiUrl) {
+          const { TONE_CONFIGS } = await import('../../constants/tones')
+          const toneName = getLineTone(rowIndex)
+          const voiceGender = getLineVoiceGender?.(rowIndex) || ttsConfig?.voiceGender || 'Female'
+          const toneConfig = TONE_CONFIGS[toneName] || TONE_CONFIGS['normal']
+
+          // Call Novel TTS API directly with tone config
+          const apiUrl = (ttsConfig.apiUrl || 'https://novelttsapi.onrender.com').trim()
+          const response = await fetch(`${apiUrl}/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text: processed,
+              bf_lib: filteredBfLib,
+              at_lib: filteredAtLib,
+              rate_pct: toneConfig.rate_pct,
+              pitch_hz: toneConfig.pitch_hz,
+              volume_pct: toneConfig.volume_pct,
+              voice_gender: voiceGender,
+              voice_name: ttsConfig?.voiceName || undefined,
+              lang: 'th'
+            })
+          })
+
+          if (!response.ok) throw new Error(`Novel TTS API Error: ${response.status}`)
+          const arrayBuffer = await response.arrayBuffer()
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+          setTtsBlobUrl(
+            URL.createObjectURL(new Blob([new Uint8Array(arrayBuffer)], { type: 'audio/mpeg' }))
+          )
+          setTtsBytes(base64)
+        } else {
+          // Fallback to electron IPC
+          const ttsResponse = await window.electron.tts(processed, {
+            apiUrl: ttsConfig?.apiUrl,
+            apiKey: ttsConfig?.apiKey,
+            voiceGender: ttsConfig?.voiceGender,
+            voiceName: ttsConfig?.voiceName || undefined,
+            rate: ttsConfig?.rate,
+            bf_lib: filteredBfLib,
+            at_lib: filteredAtLib
+          })
+          const base64 = ttsResponse.data
+          const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+          setTtsBlobUrl(URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' })))
+          setTtsBytes(base64)
+        }
       } catch (e) {
         console.error('TTS failed:', e)
       } finally {
         setTtsLoading(false)
       }
     },
-    [ttsLoading, glossary, ttsConfig, ttsGlossaries]
+    [ttsLoading, glossary, ttsConfig, ttsGlossaries, getLineTone, getLineVoiceGender]
   )
 
   // ── Row editing ─────────────────────────────────────────────────────────────
@@ -633,6 +689,10 @@ export function DualView({
         <div>
           {Array.from({ length: rowCount }, (_, i) => {
             const rowFind = findByRow.get(i)
+            const currentTone = getLineTone ? (getLineTone(i) as ToneName) : 'normal'
+            const currentVoiceGender = getLineVoiceGender
+              ? (getLineVoiceGender(i) as VoiceGender)
+              : 'female'
             return (
               <VRowPair
                 key={i}
@@ -674,6 +734,12 @@ export function DualView({
                 tgtFindRanges={rowFind?.tgt}
                 srcFindRanges={rowFind?.src}
                 splitPos={splitPos}
+                tone={currentTone}
+                onToneChange={setLineTone ? (tone) => setLineTone(i, tone) : undefined}
+                voiceGender={currentVoiceGender}
+                onVoiceGenderChange={
+                  setLineVoiceGender ? (gender) => setLineVoiceGender(i, gender) : undefined
+                }
               />
             )
           })}
@@ -684,6 +750,7 @@ export function DualView({
       {ctxMenu && (
         <ContextMenu
           menu={ctxMenu}
+          rowIndex={ctxMenu.rowIndex}
           onTranslate={(text, x, y) => setTranslatePopup({ selectedText: text, x, y })}
           onTts={handleTts}
           onAddToGlossary={onAddToGlossary}
