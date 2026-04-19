@@ -366,7 +366,7 @@ export function useFileStore(): FileStore {
 
   const getLineVoiceGender = useCallback(
     (lineIndex: number): string => {
-      return lineMetadata[lineIndex]?.voiceGender || 'Female'
+      return lineMetadata[lineIndex]?.voiceGender || 'female'
     },
     [lineMetadata]
   )

@@ -2,7 +2,7 @@
 import { VOICE_GENDERS, VOICE_GENDER_LABELS, type VoiceGender } from '../../constants/tones'
 
 interface VoiceGenderSelectorProps {
-  selectedGender: VoiceGender
+  selectedGender?: VoiceGender
   onGenderChange: (gender: VoiceGender) => void
   compact?: boolean
 }
@@ -12,7 +12,7 @@ const getGenderSymbol = (gender: VoiceGender): string => {
 }
 
 export const VoiceGenderSelector = memo(function VoiceGenderSelector({
-  selectedGender,
+  selectedGender = 'female',
   onGenderChange,
   compact = false
 }: VoiceGenderSelectorProps) {

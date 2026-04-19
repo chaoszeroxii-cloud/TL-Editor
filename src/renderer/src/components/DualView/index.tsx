@@ -250,10 +250,11 @@ export function DualView({
 
         // If rowIndex is provided and we have getLineTone, use Novel TTS API with per-line tone
         if (rowIndex !== undefined && rowIndex !== null && getLineTone && ttsConfig?.apiUrl) {
-          const { TONE_CONFIGS } = await import('../../constants/tones')
+          const { getToneConfig } = await import('../../constants/tones')
           const toneName = getLineTone(rowIndex)
-          const voiceGender = getLineVoiceGender?.(rowIndex) || ttsConfig?.voiceGender || 'Female'
-          const toneConfig = TONE_CONFIGS[toneName] || TONE_CONFIGS['normal']
+          const voiceGender = getLineVoiceGender?.(rowIndex) || ttsConfig?.voiceGender || 'female'
+          const genderKey = (voiceGender.toLowerCase() === 'female' ? 'female' : 'male') as 'female' | 'male'
+          const toneConfig = getToneConfig(toneName, genderKey)
 
           // Call Novel TTS API directly with tone config
           const apiUrl = (ttsConfig.apiUrl || 'https://novelttsapi.onrender.com').trim()
@@ -690,9 +691,7 @@ export function DualView({
           {Array.from({ length: rowCount }, (_, i) => {
             const rowFind = findByRow.get(i)
             const currentTone = getLineTone ? (getLineTone(i) as ToneName) : 'normal'
-            const currentVoiceGender = getLineVoiceGender
-              ? (getLineVoiceGender(i) as VoiceGender)
-              : 'female'
+            const currentVoiceGender: VoiceGender = ((getLineVoiceGender?.(i) || 'female') as VoiceGender)
             return (
               <VRowPair
                 key={i}

@@ -5,7 +5,7 @@
 import { useState, useRef, JSX, useCallback } from 'react'
 import type { GlossaryLibraries } from '../../utils/glossaryLoader'
 import { filterUsedGlossariesFromRecord } from '../../utils/ttsPreprocess'
-import { TONE_CONFIGS, type ToneName } from '../../constants/tones'
+import { getToneConfig, type ToneName, type VoiceGender } from '../../constants/tones'
 import { IcoMusic, IcoNetwork } from '../common/exports'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -134,7 +134,8 @@ export function TTSApiTab({
       const lines = tgtContent.split('\n').filter((line) => line.trim())
       const ttsLines = lines.map((text, idx) => {
         const toneName = getLineTone(idx)
-        const toneConfig = TONE_CONFIGS[toneName] || TONE_CONFIGS['normal']
+        const genderKey = (config.voiceGender?.toLowerCase() === 'female' ? 'female' : 'male') as VoiceGender
+        const toneConfig = getToneConfig(toneName, genderKey)
         return {
           text,
           tone: toneConfig,
