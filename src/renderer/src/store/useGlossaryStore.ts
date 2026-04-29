@@ -157,8 +157,9 @@ export function useGlossaryStore(): GlossaryStore {
     async (updatedFile: OpenGlossaryFile, oldFile: OpenGlossaryFile) => {
       const newEntries = updatedFile.entries.map((e) => ({ ...e, _file: updatedFile.name }))
       const oldSrcs = new Set(oldFile.entries.map((e) => e.src))
+      const currentGlossary = Array.isArray(glossaryRef.current) ? glossaryRef.current : []
       const next = [
-        ...glossaryRef.current.filter((g) => g._file !== updatedFile.name || oldSrcs.has(g.src)),
+        ...currentGlossary.filter((g) => g._file !== updatedFile.name || oldSrcs.has(g.src)),
         ...newEntries
       ]
       _setGlossary(next)
@@ -186,9 +187,9 @@ export function useGlossaryStore(): GlossaryStore {
 
       if (targetFile && sourceFilePaths[targetFile]) {
         try {
-          const current = glossaryRef.current
+          const currentGlossary = Array.isArray(glossaryRef.current) ? glossaryRef.current : []
           const fileEntries = [
-            ...current.filter(
+            ...currentGlossary.filter(
               (g) => g._file === targetFile && !tagged.some((e) => e.src === g.src)
             ),
             ...tagged
@@ -207,9 +208,8 @@ export function useGlossaryStore(): GlossaryStore {
 
   const saveEditEntry = useCallback(
     async (updated: GlossaryEntry, original: GlossaryEntry, targetFile?: string) => {
-      const next = glossaryRef.current.map((g) => (g === original ? updated : g))
-      _setGlossary(next)
-
+      // State is already updated by GlossaryPanel's handleEdit
+      // Just save to files here
       const oldFile = original._file
       const newFile = targetFile || updated._file
 
@@ -221,7 +221,7 @@ export function useGlossaryStore(): GlossaryStore {
       const updates: Array<Promise<void>> = []
       for (const fileName of filesToUpdate) {
         if (sourceFilePaths[fileName]) {
-          const fileEntries = next.filter((g) => g._file === fileName)
+          const fileEntries = glossaryRef.current.filter((g) => g._file === fileName)
           updates.push(saveFileEntries(fileName, fileEntries))
         }
       }
@@ -233,21 +233,19 @@ export function useGlossaryStore(): GlossaryStore {
         throw e
       }
     },
-    [glossaryRef, _setGlossary, sourceFilePaths, saveFileEntries]
+    [glossaryRef, sourceFilePaths, saveFileEntries]
   )
 
   const saveAddEntry = useCallback(
     async (entry: GlossaryEntry, targetFile: string) => {
-      const tagged = { ...entry, _file: targetFile }
-      const exists = glossaryRef.current.some((g) => g.src === entry.src)
-      const next = exists
-        ? glossaryRef.current.map((g) => (g.src === entry.src ? tagged : g))
-        : [...glossaryRef.current, tagged]
-      _setGlossary(next)
-
+      // State is already updated by GlossaryPanel's handleAdd
+      // But to be safe, ensure the entry is included in the file save
       if (sourceFilePaths[targetFile]) {
         try {
-          const fileEntries = next.filter((g) => g._file === targetFile)
+          const currentFileEntries = glossaryRef.current.filter((g) => g._file === targetFile)
+          // Check if entry is already in the list (by src)
+          const exists = currentFileEntries.some((g) => g.src === entry.src)
+          const fileEntries = exists ? currentFileEntries : [...currentFileEntries, entry]
           await saveFileEntries(targetFile, fileEntries)
         } catch (e) {
           console.error('Auto-save after add failed:', e)
@@ -255,7 +253,7 @@ export function useGlossaryStore(): GlossaryStore {
         }
       }
     },
-    [glossaryRef, _setGlossary, sourceFilePaths, saveFileEntries]
+    [glossaryRef, sourceFilePaths, saveFileEntries]
   )
 
   const saveDeleteEntry = useCallback(

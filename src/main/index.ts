@@ -1,7 +1,9 @@
 // src/main/index.ts
-import { app, BrowserWindow, session, protocol, net } from 'electron'
+import { app, BrowserWindow, session, protocol } from 'electron'
 import { join } from 'path'
 import crypto from 'crypto'
+import { readFile, stat } from 'fs/promises'
+import { extname } from 'path'
 
 import { registerConfigHandlers } from './ipc/config'
 import { registerFsHandlers } from './ipc/fs'
@@ -79,11 +81,70 @@ app.whenReady().then(() => {
       // assertPathAllowed throws if the path is not within an approved tree root
       const filePath = assertPathAllowed(rawPath)
 
-      // Normalise to a valid file:// URL (handles Windows drive letters)
-      const normalised = filePath.replace(/\\/g, '/')
-      const fileUrl = normalised.startsWith('/') ? `file://${normalised}` : `file:///${normalised}`
+      // Get file stats
+      const stats = await stat(filePath)
 
-      return net.fetch(fileUrl)
+      // Determine MIME type from extension
+      const ext = extname(filePath).toLowerCase()
+      const mimeTypes: Record<string, string> = {
+        '.mp3': 'audio/mpeg',
+        '.wav': 'audio/wav',
+        '.ogg': 'audio/ogg',
+        '.m4a': 'audio/mp4',
+        '.aac': 'audio/aac',
+        '.flac': 'audio/flac',
+        '.webm': 'audio/webm'
+      }
+      const contentType = mimeTypes[ext] || 'application/octet-stream'
+
+      // Handle range requests for seeking
+      const rangeHeader = request.headers.get('Range')
+      if (rangeHeader) {
+        const match = rangeHeader.match(/bytes=(\d+)-(\d*)/)
+        if (match) {
+          const start = parseInt(match[1], 10)
+          const end = match[2] ? parseInt(match[2], 10) : stats.size - 1
+
+          const { createReadStream } = await import('fs')
+          const stream = createReadStream(filePath, { start, end })
+          const chunks: Buffer[] = []
+
+          await new Promise<void>((resolve, reject) => {
+            stream.on('data', (chunk) => {
+              if (typeof chunk === 'string') {
+                chunks.push(Buffer.from(chunk))
+              } else {
+                chunks.push(chunk)
+              }
+            })
+            stream.on('end', () => resolve())
+            stream.on('error', reject)
+          })
+
+          const buffer = Buffer.concat(chunks)
+
+          return new Response(buffer, {
+            status: 206,
+            headers: {
+              'Content-Type': contentType,
+              'Content-Length': buffer.length.toString(),
+              'Content-Range': `bytes ${start}-${end}/${stats.size}`,
+              'Accept-Ranges': 'bytes'
+            }
+          })
+        }
+      }
+
+      // Full file response
+      const fileBuffer = await readFile(filePath)
+      return new Response(fileBuffer, {
+        status: 200,
+        headers: {
+          'Content-Type': contentType,
+          'Content-Length': stats.size.toString(),
+          'Accept-Ranges': 'bytes'
+        }
+      })
     } catch {
       return new Response('Forbidden', { status: 403 })
     }
@@ -108,11 +169,11 @@ app.whenReady().then(() => {
       if (isDev) {
         // Development: Allow unsafe-inline for Vite dev server HMR
         csp =
-          "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https: ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; media-src 'self' blob:; connect-src 'self' https: ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
       } else {
         // Production: Stricter CSP without unsafe-inline (nonce-based for dynamic content)
         const nonce = crypto.randomBytes(16).toString('hex')
-        csp = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'nonce-${nonce}'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'`
+        csp = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'nonce-${nonce}'; img-src 'self' data: blob: file:; media-src 'self' blob:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'`
       }
 
       callback({

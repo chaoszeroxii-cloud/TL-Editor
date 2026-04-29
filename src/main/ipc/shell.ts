@@ -220,4 +220,128 @@ export function registerShellHandlers(): void {
       await secureDelete(tmpFile)
     }
   })
+
+  // ── Convert MP3 → MP4 (static image + audio) via ffmpeg ───────────────
+  // Each audio file becomes one MP4: static cover image + audio track.
+  // opts: { imagePath, audioPaths[], outputDir?, ffmpegPath? }
+  ipcMain.handle(
+    'convert-mp3-to-mp4',
+    async (
+      _e,
+      opts: {
+        imagePath: string
+        audioPaths: string[]
+        outputDir?: string
+        ffmpegPath?: string
+      }
+    ) => {
+      const { join, extname } = await import('path')
+      const { mkdir, stat } = await import('fs/promises')
+      const { dialog } = await import('electron')
+
+      // 1. Validate image
+      if (!opts.imagePath) throw new Error('Cover image is required')
+      const approvedImage = assertPathAllowed(opts.imagePath)
+      if (!['.jpg', '.jpeg', '.png'].includes(extname(approvedImage).toLowerCase())) {
+        throw new Error('Cover image must be JPG or PNG')
+      }
+
+      // 2. Validate audio files
+      if (!opts.audioPaths || opts.audioPaths.length === 0)
+        throw new Error('No audio files selected')
+      const approvedAudios = opts.audioPaths.map((p) => assertPathAllowed(p))
+      for (const ap of approvedAudios) {
+        if (extname(ap).toLowerCase() !== '.mp3') {
+          throw new Error(`File is not MP3: ${ap.split(/[\\/]/).pop()}`)
+        }
+      }
+
+      // 3. Determine output directory
+      let outDir = opts.outputDir
+      if (!outDir) {
+        const result = await dialog.showOpenDialog({
+          title: 'Select output folder for MP4 files',
+          properties: ['openDirectory']
+        })
+        if (result.canceled || result.filePaths.length === 0)
+          return { canceled: true, outputs: [], errors: [] }
+        outDir = result.filePaths[0]
+      }
+      const approvedOut = assertPathAllowed(outDir!)
+      await mkdir(approvedOut, { recursive: true })
+
+      // 4. Find ffmpeg
+      const ffmpeg =
+        opts.ffmpegPath &&
+        (await stat(opts.ffmpegPath)
+          .then(() => true)
+          .catch(() => false))
+          ? opts.ffmpegPath
+          : 'ffmpeg'
+
+      // 5. Convert each MP3
+      const outputs: string[] = []
+      const errors: string[] = []
+
+      for (const audioPath of approvedAudios) {
+        const baseName = audioPath
+          .split(/[\\/]/)
+          .pop()!
+          .replace(/\.mp3$/i, '')
+        const outFile = join(approvedOut, `${baseName}.mp4`)
+
+        const args = [
+          '-loop',
+          '1',
+          '-framerate',
+          '1',
+          '-i',
+          approvedImage,
+          '-i',
+          audioPath,
+          '-map',
+          '0:v',
+          '-map',
+          '1:a',
+          '-r',
+          '10',
+          '-c:v',
+          'h264_nvenc',
+          '-preset',
+          'p4',
+          '-pix_fmt',
+          'yuv420p',
+          '-acodec',
+          'copy',
+          '-b:a',
+          '256k',
+          '-strict',
+          'experimental',
+          '-y',
+          '-shortest',
+          outFile
+        ]
+
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const proc = spawn(ffmpeg, args, { shell: false, timeout: 300_000 })
+            let stderr = ''
+            proc.stderr.on('data', (c: Buffer) => {
+              stderr += c.toString()
+            })
+            proc.on('close', (code) => {
+              if (code === 0) resolve()
+              else reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(0, 500)}`))
+            })
+            proc.on('error', reject)
+          })
+          outputs.push(outFile)
+        } catch (err) {
+          errors.push(`${baseName}: ${(err as Error).message}`)
+        }
+      }
+
+      return { canceled: false, outputs, errors }
+    }
+  )
 }

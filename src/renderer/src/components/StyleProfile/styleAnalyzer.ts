@@ -80,7 +80,7 @@ interface AnalysisResponse {
 export async function runStyleAnalysis(
   corrections: Correction[],
   apiKey: string,
-  model = 'deepseek/deepseek-v3.2'
+  model = 'deepseek/deepseek-v4-flash'
 ): Promise<{ styleGuide: string; promptSnippet: string; patterns: StylePattern[] }> {
   if (corrections.length < 3) {
     throw new Error('ต้องมีอย่างน้อย 3 corrections ก่อน analyze')

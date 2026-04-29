@@ -841,7 +841,7 @@ export function DualView({
                   boxShadow: '0 2px 8px rgba(0,0,0,0.4)'
                 }}
               >
-                💾 Save MP3
+                Save MP3
               </button>
             </div>
           )}

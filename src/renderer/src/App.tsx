@@ -22,6 +22,7 @@ import { AudioPlayer } from './components/AudioPlayer'
 import { JsonRawEditorModal } from './components/JsonManager/JsonRawEditorModal'
 import { TerminalPanel } from './components/Terminal'
 import { AITranslatePanel } from './components/AITranslatePanel'
+import { Mp3ToMp4 } from './components/Mp3ToMp4'
 import { SetupWizard } from './components/setup/SetupWizard'
 import {
   useStyleProfileStore,
@@ -34,7 +35,7 @@ import {
 import { useAppStore } from './store/useAppStore'
 import { useFileStore } from './store/useFileStore'
 import { useGlossaryStore } from './store/useGlossaryStore'
-import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts' // ✅ FIXED
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts' //  FIXED
 
 import { countMatches } from './utils/highlight'
 import { findTranslationPair } from './hooks/useChapterPairing'
@@ -45,7 +46,7 @@ import { useCompactTopBar } from './hooks/useCompactTopBar'
 import type { SetupConfig } from './components/setup/SetupWizard'
 import type { ToneName, VoiceGender } from './constants/tones'
 
-import { IcoEdit, IcoFile, IcoTerminal, IcoSparkle } from './components/common/icons'
+import { IcoEdit, IcoFile, IcoMusic, IcoTerminal, IcoSparkle } from './components/common/icons'
 
 import './styles/global.css'
 
@@ -211,7 +212,7 @@ export default function App(): JSX.Element {
       const newPath = await files.commitRename(which)
       if (!newPath || !app.rootDir) return
       // Refresh tree to show updated file names
-      const newTree = await window.electron.readTree(app.rootDir)
+      const newTree = await window.electron.readTree(app.rootDir, { force: true })
       app.setTree(newTree)
     },
     [files, app]
@@ -221,7 +222,7 @@ export default function App(): JSX.Element {
   const { rootDir, setTree } = app
   const handleRefresh = useCallback(async () => {
     if (!rootDir) return
-    const newTree = await window.electron.readTree(rootDir)
+    const newTree = await window.electron.readTree(rootDir, { force: true })
     setTree(newTree)
   }, [rootDir, setTree])
 
@@ -435,6 +436,7 @@ export default function App(): JSX.Element {
           sidebarVisible={app.sidebarVisible}
           glossaryVisible={app.glossaryVisible}
           terminalOpen={app.terminalOpen}
+          mp3ConverterOpen={app.mp3ConverterOpen}
           aiPanelOpen={app.aiPanelOpen}
           styleProfileOpen={app.styleProfileOpen}
           onToggleStyleProfile={app.toggleStyleProfile}
@@ -443,6 +445,7 @@ export default function App(): JSX.Element {
           onToggleSidebar={app.toggleSidebar}
           onToggleGlossary={app.toggleGlossary}
           onToggleTerminal={app.toggleTerminal}
+          onToggleMp3Converter={app.toggleMp3Converter}
           onToggleAi={app.toggleAiPanel}
           onOpenJsonManager={() => app.setJsonManagerOpen((v) => !v)}
           onRefresh={handleRefresh}
@@ -592,6 +595,13 @@ export default function App(): JSX.Element {
         </ErrorBoundary>
       )}
 
+      {/* MP3 → MP4 Converter */}
+      {app.mp3ConverterOpen && (
+        <ErrorBoundary name="Mp3ToMp4">
+          <Mp3ToMp4 onClose={() => app.setMp3ConverterOpen(false)} />
+        </ErrorBoundary>
+      )}
+
       {/* Status bar */}
       <div style={s.statusbar}>
         <StatusItem label="Ln" value={files.activeRow >= 0 ? String(files.activeRow + 1) : '—'} />
@@ -681,6 +691,7 @@ const TopBarRight = memo(function TopBarRight({
   sidebarVisible,
   glossaryVisible,
   terminalOpen,
+  mp3ConverterOpen,
   aiPanelOpen,
   styleProfileOpen,
   jsonFileCount,
@@ -688,6 +699,7 @@ const TopBarRight = memo(function TopBarRight({
   onToggleSidebar,
   onToggleGlossary,
   onToggleTerminal,
+  onToggleMp3Converter,
   onToggleAi,
   onToggleStyleProfile,
   onOpenJsonManager,
@@ -700,6 +712,7 @@ const TopBarRight = memo(function TopBarRight({
   sidebarVisible: boolean
   glossaryVisible: boolean
   terminalOpen: boolean
+  mp3ConverterOpen: boolean
   aiPanelOpen: boolean
   styleProfileOpen: boolean
   jsonFileCount: number
@@ -708,6 +721,7 @@ const TopBarRight = memo(function TopBarRight({
   onToggleGlossary: () => void
   onToggleTerminal: () => void
   onToggleAi: () => void
+  onToggleMp3Converter: () => void
   onToggleStyleProfile: () => void
   onOpenJsonManager: () => void
   onRefresh: () => void
@@ -802,6 +816,15 @@ const TopBarRight = memo(function TopBarRight({
         label=" Terminal"
         title="Terminal (Ctrl+`)"
         onClick={onToggleTerminal}
+        compact={compact}
+      />
+
+      <ActionButton
+        active={mp3ConverterOpen}
+        icon={<IcoMusic size={11} stroke="currentColor" />}
+        label=" MP3→MP4"
+        title="MP3 to MP4 Converter"
+        onClick={onToggleMp3Converter}
         compact={compact}
       />
 

@@ -89,9 +89,10 @@ interface ElectronAPI {
   saveConfigPatch: (patch: _SaveConfigPayload) => Promise<void>
 
   // ── File operations ──────────────────────────────────────────────────────
-  readTree: (dirPath: string) => Promise<_TreeNode[]>
+  readTree: (dirPath: string, options?: { force?: boolean }) => Promise<_TreeNode[]>
   readFile: (filePath: string) => Promise<string>
   readFileOptional: (filePath: string) => Promise<string | null>
+  readImageDataUrl: (filePath: string) => Promise<string>
   writeFile: (filePath: string, content: string) => Promise<void>
   moveFile: (oldPath: string, newPath: string) => Promise<void>
   /** @legacy Use audio:// protocol instead for local audio files */
@@ -120,6 +121,8 @@ interface ElectronAPI {
   // ── File dialogs ─────────────────────────────────────────────────────────
   openFile: (filters?: { name: string; extensions: string[] }[]) => Promise<string | null>
   openFolder: () => Promise<string | null>
+  getPathForFile: (file: File) => string
+  approvePaths: (paths: string[]) => Promise<void>
 
   // ── Translation / AI APIs ────────────────────────────────────────────────
   translate: (text: string) => Promise<unknown>
@@ -142,6 +145,14 @@ interface ElectronAPI {
 
   // ── Network request management ───────────────────────────────────────────
   cancelNetworkRequest: (requestId: string) => Promise<boolean>
+
+  // ── MP3 → MP4 conversion ────────────────────────────────────────────────
+  convertMp3ToMp4: (opts: {
+    imagePath: string
+    audioPaths: string[]
+    outputDir?: string
+    ffmpegPath?: string
+  }) => Promise<{ canceled?: boolean; outputs: string[]; errors: string[] }>
 }
 
 declare global {

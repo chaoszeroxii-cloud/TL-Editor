@@ -32,6 +32,16 @@ describe('useFileStore', () => {
       expect(result.current.tgtContent).toBe('สวัสดี')
     })
 
+    it('should keep tgtContentRef in sync after target change', () => {
+      const { result } = renderHook(() => useFileStore())
+
+      act(() => {
+        result.current.handleTgtChange('test line')
+      })
+
+      expect(result.current.tgtContentRef.current).toBe('test line')
+    })
+
     it('should mark file as dirty on target change', () => {
       const { result } = renderHook(() => useFileStore())
 

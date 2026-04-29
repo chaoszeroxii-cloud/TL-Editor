@@ -189,6 +189,23 @@ export const IcoMusic = ({ size, stroke }: IconProps = def()): JSX.Element => (
   </svg>
 )
 
+export const IcoImage = ({ size, stroke }: IconProps = def()): JSX.Element => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={stroke}
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <circle cx="9" cy="10" r="1.5" />
+    <path d="M21 16l-5.5-5.5L6 20" />
+  </svg>
+)
+
 export const IcoNetwork = ({ size, stroke }: IconProps = def()): JSX.Element => (
   <svg
     width={size}
@@ -381,6 +398,23 @@ export const IcoCheck = ({ size, stroke }: IconProps = def()): JSX.Element => (
     strokeLinejoin="round"
   >
     <polyline points="20 6 9 17 4 12" />
+  </svg>
+)
+
+export const IcoAlert = ({ size, stroke }: IconProps = def()): JSX.Element => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={stroke}
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 3l9 16H3L12 3z" />
+    <path d="M12 9v5" />
+    <circle cx="12" cy="17" r="1" fill="currentColor" stroke="none" />
   </svg>
 )
 
@@ -615,6 +649,22 @@ export const IcoSparkle = ({ size, stroke }: IconProps = def()): JSX.Element => 
     strokeLinejoin="round"
   >
     <path d="M12 2L9.5 9.5 2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5z" />
+  </svg>
+)
+
+export const IcoVideo = ({ size, stroke }: IconProps = def()): JSX.Element => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={stroke}
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect x="3" y="6" width="13" height="12" rx="2" />
+    <path d="M16 10l5-3v10l-5-3" />
   </svg>
 )
 
