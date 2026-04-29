@@ -32,6 +32,8 @@ export interface AppStore {
   setGlossaryVisible: Dispatch<SetStateAction<boolean>>
   terminalOpen: boolean
   setTerminalOpen: Dispatch<SetStateAction<boolean>>
+  mp3ConverterOpen: boolean
+  setMp3ConverterOpen: Dispatch<SetStateAction<boolean>>
   aiPanelOpen: boolean
   setAiPanelOpen: Dispatch<SetStateAction<boolean>>
   jsonManagerOpen: boolean
@@ -41,6 +43,7 @@ export interface AppStore {
   toggleSidebar: () => void
   toggleGlossary: () => void
   toggleTerminal: () => void
+  toggleMp3Converter: () => void
   toggleAiPanel: () => void
   toggleJsonManager: (hasFiles: boolean) => void
 
@@ -73,12 +76,14 @@ export function useAppStore(): AppStore {
   const [sidebarVisible, setSidebarVisible] = useState(true)
   const [glossaryVisible, setGlossaryVisible] = useState(true)
   const [terminalOpen, setTerminalOpen] = useState(false)
+  const [mp3ConverterOpen, setMp3ConverterOpen] = useState(false)
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
   const [jsonManagerOpen, setJsonManagerOpen] = useState(false)
 
   const toggleSidebar = useCallback(() => setSidebarVisible((v) => !v), [])
   const toggleGlossary = useCallback(() => setGlossaryVisible((v) => !v), [])
   const toggleTerminal = useCallback(() => setTerminalOpen((v) => !v), [])
+  const toggleMp3Converter = useCallback(() => setMp3ConverterOpen((v) => !v), [])
   const toggleAiPanel = useCallback(() => setAiPanelOpen((v) => !v), [])
   const toggleJsonManager = useCallback((hasFiles: boolean) => {
     if (hasFiles) setJsonManagerOpen((v) => !v)
@@ -138,6 +143,9 @@ export function useAppStore(): AppStore {
     terminalOpen,
     setTerminalOpen,
     toggleTerminal,
+    mp3ConverterOpen,
+    setMp3ConverterOpen,
+    toggleMp3Converter,
     aiPanelOpen,
     setAiPanelOpen,
     toggleAiPanel,

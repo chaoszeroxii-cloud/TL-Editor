@@ -1,6 +1,6 @@
 // src/main/ipc/fs.ts
 import { ipcMain } from 'electron'
-import { join } from 'path'
+import { extname, join } from 'path'
 import { readdir, readFile, writeFile, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import fs from 'fs'
@@ -48,7 +48,7 @@ export function invalidateTreeCache(dirPath: string): void {
 
 const ALLOWED_EXTS = new Set(['.txt', '.json', '.mp3', '.ogg', '.wav', '.m4a'])
 
-async function buildTree(dirPath: string, depth = 0): Promise<TreeNode[]> {
+async function buildTree(dirPath: string, depth = 0, force = false): Promise<TreeNode[]> {
   if (depth > 4) return []
 
   // ── Cache lookup ────────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ async function buildTree(dirPath: string, depth = 0): Promise<TreeNode[]> {
     const s = await stat(dirPath)
     currentMtime = s.mtimeMs
     const cached = treeCache.get(dirPath)
-    if (cached && cached.mtimeMs === currentMtime) return cached.nodes
+    if (!force && cached && cached.mtimeMs === currentMtime) return cached.nodes
   } catch {
     // stat failed (permission error, race condition) — proceed without cache
   }
@@ -69,7 +69,7 @@ async function buildTree(dirPath: string, depth = 0): Promise<TreeNode[]> {
     if (entry.name.startsWith('.')) continue
     const fullPath = join(dirPath, entry.name)
     if (entry.isDirectory()) {
-      const children = await buildTree(fullPath, depth + 1)
+      const children = await buildTree(fullPath, depth + 1, force)
       nodes.push({ name: entry.name, path: fullPath, type: 'folder', children })
     } else {
       const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase()
@@ -94,7 +94,9 @@ async function buildTree(dirPath: string, depth = 0): Promise<TreeNode[]> {
 // ─── IPC handlers ─────────────────────────────────────────────────────────────
 
 export function registerFsHandlers(): void {
-  ipcMain.handle('fs:readTree', (_e, dirPath: string) => buildTree(assertPathAllowed(dirPath)))
+  ipcMain.handle('fs:readTree', (_e, dirPath: string, options?: { force?: boolean }) =>
+    buildTree(assertPathAllowed(dirPath), 0, options?.force)
+  )
 
   ipcMain.handle('fs:readFile', (_e, filePath: string) =>
     readFile(assertPathAllowed(filePath), 'utf-8')
@@ -115,6 +117,18 @@ export function registerFsHandlers(): void {
     // Local file audio now goes through the audio:// protocol instead.
     const buf = await fs.promises.readFile(assertPathAllowed(filePath))
     return buf.toString('base64')
+  })
+
+  ipcMain.handle('fs:readImageDataUrl', async (_e, filePath: string) => {
+    const approvedPath = assertPathAllowed(filePath)
+    const buf = await fs.promises.readFile(approvedPath)
+    const ext = extname(approvedPath).toLowerCase()
+    const mimeType =
+      ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : null
+
+    if (!mimeType) throw new Error(`Unsupported image type: ${ext || 'unknown'}`)
+
+    return `data:${mimeType};base64,${buf.toString('base64')}`
   })
 
   ipcMain.handle('fs:writeFile', async (_e, filePath: string, content: string) => {

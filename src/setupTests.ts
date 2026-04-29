@@ -13,6 +13,7 @@ type ElectronAPI = {
   readTree: jest.Mock<Promise<unknown>>
   readFile: jest.Mock<Promise<string>>
   readFileOptional: jest.Mock<Promise<string | null>>
+  readImageDataUrl: jest.Mock<Promise<string>>
   translate: jest.Mock<Promise<unknown>>
   readAudioBuffer: jest.Mock<Promise<unknown>>
   writeFile: jest.Mock<Promise<void>>
@@ -27,6 +28,8 @@ type ElectronAPI = {
   getPairedPath: jest.Mock<Promise<unknown>>
   openrouterChat: jest.Mock<Promise<unknown>>
   openFile: jest.Mock<Promise<unknown>>
+  getPathForFile: jest.Mock<string>
+  approvePaths: jest.Mock<Promise<void>>
   tts: jest.Mock<Promise<unknown>>
   ttsStream: jest.Mock<Promise<unknown>>
   saveTtsAudio: jest.Mock<Promise<unknown>>
@@ -52,6 +55,7 @@ window.electron = {
   readTree: jest.fn().mockResolvedValue([]),
   readFile: jest.fn().mockResolvedValue(''),
   readFileOptional: jest.fn().mockResolvedValue(null),
+  readImageDataUrl: jest.fn().mockResolvedValue(''),
   translate: jest.fn().mockResolvedValue(''),
   readAudioBuffer: jest.fn().mockResolvedValue(null),
   writeFile: jest.fn().mockResolvedValue(undefined),
@@ -66,6 +70,8 @@ window.electron = {
   getPairedPath: jest.fn().mockResolvedValue(''),
   openrouterChat: jest.fn().mockResolvedValue(null),
   openFile: jest.fn().mockResolvedValue(null),
+  getPathForFile: jest.fn().mockReturnValue(''),
+  approvePaths: jest.fn().mockResolvedValue(undefined),
   tts: jest.fn().mockResolvedValue(''),
   ttsStream: jest.fn().mockResolvedValue(''),
   saveTtsAudio: jest.fn().mockResolvedValue(null),

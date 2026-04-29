@@ -138,10 +138,9 @@ export function useFileStore(): FileStore {
 
   // ── TGT handlers ──────────────────────────────────────────────────────────
 
-  const handleTgtChange = useCallback((content: string) => {
-    // Use state setter callback to ensure we capture the correct previous content
-    // This avoids stale closure issues with rapid edits/pastes
-    setTgtContent((prevContent) => {
+  const handleTgtChange = useCallback(
+    (content: string) => {
+      const prevContent = tgtContentRef.current
       if (prevContent !== content) {
         const last = tgtUndoStack.current[tgtUndoStack.current.length - 1]
         // Only add to undo if this is a new change (last !== prevContent)
@@ -151,13 +150,14 @@ export function useFileStore(): FileStore {
             tgtUndoStack.current.shift()
           }
         }
+        // Clear redo stack on any new change
+        tgtRedoStack.current = []
+        setIsDirty(true)
       }
-      // Clear redo stack on any new change
-      tgtRedoStack.current = []
-      setIsDirty(true)
-      return content
-    })
-  }, [])
+      _setTgtContent(content)
+    },
+    [_setTgtContent]
+  )
 
   const handleUndo = useCallback(() => {
     const prev = tgtUndoStack.current.pop()
@@ -189,10 +189,9 @@ export function useFileStore(): FileStore {
 
   // ── SRC handlers ──────────────────────────────────────────────────────────
 
-  const handleSrcChange = useCallback((content: string) => {
-    // Use state setter callback to ensure we capture the correct previous content
-    // This avoids stale closure issues with rapid edits/pastes
-    setSrcContent((prevContent) => {
+  const handleSrcChange = useCallback(
+    (content: string) => {
+      const prevContent = srcContentRef.current
       if (prevContent !== content) {
         const last = srcUndoStack.current[srcUndoStack.current.length - 1]
         // Only add to undo if this is a new change (last !== prevContent)
@@ -202,13 +201,14 @@ export function useFileStore(): FileStore {
             srcUndoStack.current.shift()
           }
         }
+        // Clear redo stack on any new change
+        srcRedoStack.current = []
+        setSrcIsDirty(true)
       }
-      // Clear redo stack on any new change
-      srcRedoStack.current = []
-      setSrcIsDirty(true)
-      return content
-    })
-  }, [])
+      _setSrcContent(content)
+    },
+    [_setSrcContent]
+  )
 
   const handleSrcUndo = useCallback(() => {
     const prev = srcUndoStack.current.pop()

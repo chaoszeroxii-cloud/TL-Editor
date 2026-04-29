@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 const eventChannels = new Set(['run-command:stdout', 'run-command:stderr'])
 
@@ -16,9 +16,11 @@ contextBridge.exposeInMainWorld('electron', {
     if (!eventChannels.has(channel)) return
     ipcRenderer.removeListener(channel, cb)
   },
-  readTree: (dirPath: string) => ipcRenderer.invoke('fs:readTree', dirPath),
+  readTree: (dirPath: string, options?: { force?: boolean }) =>
+    ipcRenderer.invoke('fs:readTree', dirPath, options),
   readFile: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath),
   readFileOptional: (filePath: string) => ipcRenderer.invoke('fs:readFileOptional', filePath),
+  readImageDataUrl: (filePath: string) => ipcRenderer.invoke('fs:readImageDataUrl', filePath),
   translate: (text: string) => ipcRenderer.invoke('translate', text),
   readAudioBuffer: (filePath: string) => ipcRenderer.invoke('fs:readAudioBuffer', filePath),
   writeFile: (filePath: string, content: string) =>
@@ -41,6 +43,8 @@ contextBridge.exposeInMainWorld('electron', {
   openrouterChat: (opts: Record<string, unknown>) => ipcRenderer.invoke('openrouter-chat', opts),
   openFile: (filters?: { name: string; extensions: string[] }[]) =>
     ipcRenderer.invoke('open-file', filters),
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
+  approvePaths: (paths: string[]) => ipcRenderer.invoke('approve-paths', paths),
   // Updated: accepts options object for Novel TTS API instead of voice string
   tts: (
     text: string,
@@ -76,5 +80,14 @@ contextBridge.exposeInMainWorld('electron', {
   // Health check handlers for TTS API (keep-alive)
   startHealthCheck: (config?: { enabled?: boolean; intervalMs?: number; apiUrl?: string }) =>
     ipcRenderer.invoke('start-health-check', config),
-  stopHealthCheck: () => ipcRenderer.invoke('stop-health-check')
+  stopHealthCheck: () => ipcRenderer.invoke('stop-health-check'),
+  // MP3 → MP4 conversion (static cover image + audio)
+  convertMp3ToMp4: (
+    opts: {
+      imagePath: string
+      audioPaths: string[]
+      outputDir?: string
+      ffmpegPath?: string
+    }
+  ) => ipcRenderer.invoke('convert-mp3-to-mp4', opts)
 })

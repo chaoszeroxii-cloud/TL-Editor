@@ -160,7 +160,7 @@ export function AITranslatePanel({
 
       const response = await window.electron.openrouterChat({
         apiKey: apiKey.trim(),
-        model: 'deepseek/deepseek-v3.2',
+        model: 'deepseek/deepseek-v4-flash',
         messages: [
           { role: 'system', content: systemMsg },
           { role: 'user', content: srcContent }
@@ -251,7 +251,7 @@ export function AITranslatePanel({
           <IcoSparkle size={13} stroke="currentColor" />
         </span>
         <span style={s.headerTitle}>AI Translate</span>
-        <span style={s.model}>deepseek-v3.2·OpenRouter</span>
+        <span style={s.model}>deepseek-v4-flash</span>
       </div>
 
       {/* Tab switcher */}

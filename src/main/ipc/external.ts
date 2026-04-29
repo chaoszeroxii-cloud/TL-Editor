@@ -1,5 +1,8 @@
 import { ipcMain, net } from 'electron'
 import type { ClientRequest } from 'electron'
+import { URL } from 'url'
+import * as https from 'https'
+import { IncomingMessage } from 'http'
 
 // ─── Error logging utility ─────────────────────────────────────────────────────
 
@@ -384,20 +387,27 @@ export function registerExternalHandlers(): void {
       })
 
       return new Promise<{ requestId: string; data: string }>((resolve, reject) => {
+        const urlObj = new URL(`${apiUrl}stream`)
+
         const headers: Record<string, string> = {
           'Content-Type': 'application/json'
         }
         if (apiKey) headers['X-API-Key'] = apiKey
 
-        const req = net.request({
+        const reqOptions = {
           method: 'POST',
-          url: `${apiUrl}stream`,
-          headers
-        })
+          hostname: urlObj.hostname,
+          port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
+          path: urlObj.pathname,
+          headers: {
+            ...headers,
+            'Content-Length': Buffer.byteLength(payload).toString()
+          }
+        }
 
-        const chunks: Buffer[] = []
+        const req = https.request(reqOptions, (res: IncomingMessage) => {
+          const chunks: Buffer[] = []
 
-        req.on('response', (res) => {
           res.on('data', (chunk: Buffer) => chunks.push(chunk))
           res.on('end', () => {
             removeActiveRequest(requestId)
@@ -413,13 +423,14 @@ export function registerExternalHandlers(): void {
           })
         })
 
-        req.on('error', (err) => {
+        req.on('error', (err: Error) => {
           removeActiveRequest(requestId)
           const error = err instanceof Error ? err : new Error(String(err))
           logError('tts-stream', error, { requestId, text: text.slice(0, 50) })
           reject(error)
         })
 
+        // Handle abort
         req.on('abort', () => {
           removeActiveRequest(requestId)
           const err = new Error('TTS streaming request cancelled')
@@ -428,7 +439,14 @@ export function registerExternalHandlers(): void {
         })
 
         // Track this request for cancellation (no timeout)
-        activeRequests.set(requestId, { req, timeoutHandle: null })
+        // Create a wrapper that has destroy method for cancellation
+        const reqWrapper = {
+          destroy: () => req.destroy(),
+          on: req.on.bind(req),
+          write: req.write.bind(req),
+          end: req.end.bind(req)
+        } as unknown as ClientRequest
+        activeRequests.set(requestId, { req: reqWrapper, timeoutHandle: null })
 
         req.write(payload)
         req.end()

@@ -201,7 +201,7 @@ export function ParaphraseTab({
 
       const response = await window.electron.openrouterChat({
         apiKey: apiKey.trim(),
-        model: 'deepseek/deepseek-v3.2',
+        model: 'deepseek/deepseek-v4-flash',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: input.trim() }

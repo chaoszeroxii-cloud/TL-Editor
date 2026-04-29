@@ -71,6 +71,8 @@ export const AudioPlayer = memo(function AudioPlayer({
   const [hovering, setHovering] = useState(false)
   const [closeBtnHov, setCloseBtnHov] = useState(false)
   const [showHints, setShowHints] = useState(false)
+  const [playbackRate, setPlaybackRate] = useState(1)
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false)
   const rafRef = useRef<number | null>(null)
   const tickRef = useRef<() => void>(() => {})
   const [isDragging, setIsDragging] = useState(false)
@@ -84,12 +86,47 @@ export const AudioPlayer = memo(function AudioPlayer({
     const au = audioRef.current
     if (!au) return
 
+    // Attach metadata listener BEFORE setting src to avoid missing the event
+    const onMeta = (): void => {
+      if (isFinite(au.duration) && au.duration > 0) {
+        setDuration(au.duration)
+      }
+    }
+    const onDurationChange = (): void => {
+      if (isFinite(au.duration) && au.duration > 0) {
+        setDuration(au.duration)
+      }
+    }
+    const onLoadedData = (): void => {
+      if (isFinite(au.duration) && au.duration > 0) {
+        setDuration(au.duration)
+      }
+    }
+    au.addEventListener('loadedmetadata', onMeta)
+    au.addEventListener('durationchange', onDurationChange)
+    au.addEventListener('loadeddata', onLoadedData)
+
     // No async IPC needed — just set the src and let the protocol handler stream it.
     const src = toAudioSrc(filePath)
     au.src = src
     au.volume = volume
     au.muted = muted
     au.load()
+
+    // If metadata is already available (from cache), set duration immediately
+    if (au.readyState >= 1 && isFinite(au.duration) && au.duration > 0) {
+      setDuration(au.duration)
+    }
+
+    // Fallback: poll for duration in case events don't fire
+    const pollInterval = setInterval(() => {
+      if (isFinite(au.duration) && au.duration > 0) {
+        setDuration(au.duration)
+        clearInterval(pollInterval)
+      }
+    }, 500)
+    // Stop polling after 10 seconds
+    const pollTimeout = setTimeout(() => clearInterval(pollInterval), 10000)
 
     if (autoPlay) {
       au.addEventListener('canplay', () => au.play(), { once: true })
@@ -98,9 +135,16 @@ export const AudioPlayer = memo(function AudioPlayer({
     // Cleanup: for blob: URLs created by TTS panel we do NOT revoke here —
     // the parent component (DualView) owns that blob and revokes it on close.
     return () => {
+      clearInterval(pollInterval)
+      clearTimeout(pollTimeout)
       au.pause()
+      au.removeEventListener('loadedmetadata', onMeta)
+      au.removeEventListener('durationchange', onDurationChange)
+      au.removeEventListener('loadeddata', onLoadedData)
       au.removeAttribute('src')
       au.load()
+      setCurrent(0)
+      setDuration(0)
     }
   }, [filePath, autoPlay, volume, muted])
 
@@ -109,9 +153,21 @@ export const AudioPlayer = memo(function AudioPlayer({
     const au = audioRef.current
     if (!au) return
     setCurrent(au.currentTime)
-    onTimeUpdateRef.current?.(au.currentTime, au.duration || 0)
-    rafRef.current = requestAnimationFrame(tickRef.current!)
-  }, [])
+    // Also update duration if it becomes available during playback
+    if (isFinite(au.duration) && au.duration > 0 && au.duration !== duration) {
+      setDuration(au.duration)
+    }
+    // Check if audio should have ended but didn't fire ended event
+    if (au.currentTime >= au.duration && au.duration > 0 && !au.paused) {
+      au.pause()
+      setPlaying(false)
+      setCurrent(0)
+      onTimeUpdateRef.current?.(0, au.duration || 0)
+    } else {
+      onTimeUpdateRef.current?.(au.currentTime, au.duration || 0)
+      rafRef.current = requestAnimationFrame(tickRef.current!)
+    }
+  }, [duration])
 
   useEffect(() => {
     tickRef.current = tick
@@ -121,7 +177,6 @@ export const AudioPlayer = memo(function AudioPlayer({
   useEffect(() => {
     const au = audioRef.current
     if (!au) return
-    const onMeta = (): void => setDuration(au.duration)
     const onPlay = (): void => {
       setPlaying(true)
       rafRef.current = requestAnimationFrame(tick)
@@ -134,19 +189,20 @@ export const AudioPlayer = memo(function AudioPlayer({
       setPlaying(false)
       setCurrent(0)
       onTimeUpdateRef.current?.(0, au.duration || 0)
+      // Ensure audio stops and doesn't loop
+      au.pause()
+      au.currentTime = 0
     }
-    au.addEventListener('loadedmetadata', onMeta)
     au.addEventListener('play', onPlay)
     au.addEventListener('pause', onPause)
     au.addEventListener('ended', onEnded)
     return () => {
-      au.removeEventListener('loadedmetadata', onMeta)
       au.removeEventListener('play', onPlay)
       au.removeEventListener('pause', onPause)
       au.removeEventListener('ended', onEnded)
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
-  }, [tick])
+  }, [tick, filePath])
 
   // ── Controls ──────────────────────────────────────────────────────────────
   const togglePlay = useCallback((): void => {
@@ -190,6 +246,13 @@ export const AudioPlayer = memo(function AudioPlayer({
     },
     [muted]
   )
+
+  const changePlaybackRate = useCallback((rate: number): void => {
+    const au = audioRef.current
+    if (au) au.playbackRate = rate
+    setPlaybackRate(rate)
+    setShowSpeedMenu(false)
+  }, [])
 
   const handleClose = (): void => {
     const au = audioRef.current
@@ -263,6 +326,28 @@ export const AudioPlayer = memo(function AudioPlayer({
         e.preventDefault()
         e.stopPropagation()
         seekTo(0)
+        return
+      }
+      if (alt && code === 'Equal') {
+        e.preventDefault()
+        e.stopPropagation()
+        setPlaybackRate((r) => {
+          const newRate = clamp(r + 0.05, 0.5, 2)
+          const au = audioRef.current
+          if (au) au.playbackRate = newRate
+          return newRate
+        })
+        return
+      }
+      if (alt && code === 'Minus') {
+        e.preventDefault()
+        e.stopPropagation()
+        setPlaybackRate((r) => {
+          const newRate = clamp(r - 0.05, 0.5, 2)
+          const au = audioRef.current
+          if (au) au.playbackRate = newRate
+          return newRate
+        })
         return
       }
 
@@ -393,6 +478,70 @@ export const AudioPlayer = memo(function AudioPlayer({
 
         <div style={S.sep} />
 
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <button
+            style={{
+              ...S.iconBtn,
+              color: showSpeedMenu ? 'var(--accent)' : 'var(--text2)',
+              opacity: showSpeedMenu ? 1 : 0.65,
+              fontSize: 10,
+              fontWeight: 500,
+              padding: '4px 6px'
+            }}
+            onClick={() => setShowSpeedMenu((v) => !v)}
+            title="ความเร็ว (Alt++ / Alt+-)"
+          >
+            {playbackRate.toFixed(2)}x
+          </button>
+          {showSpeedMenu && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 36,
+                left: 0,
+                background: 'var(--bg3)',
+                border: '1px solid var(--border)',
+                borderRadius: 4,
+                padding: '4px 0',
+                zIndex: 1000,
+                minWidth: 70,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+              }}
+            >
+              {[0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                <button
+                  key={rate}
+                  onClick={() => changePlaybackRate(rate)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    width: '100%',
+                    padding: '6px 12px',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontSize: 10,
+                    color: playbackRate === rate ? 'var(--accent)' : 'var(--text2)',
+                    fontWeight: playbackRate === rate ? 600 : 400,
+                    display: 'block',
+                    whiteSpace: 'nowrap',
+                    borderRadius: 0
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'var(--bg4)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'none'
+                  }}
+                >
+                  {rate.toFixed(2)}x
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={S.sep} />
+
         <button
           style={{
             ...S.iconBtn,
@@ -428,6 +577,7 @@ export const AudioPlayer = memo(function AudioPlayer({
             ['Ctrl+Space', 'เล่น/หยุด (ขณะพิมพ์)'],
             ['Alt+← →', '±5s'],
             ['Alt+↑↓', 'volume'],
+            ['Alt++ / Alt+-', 'ความเร็ว'],
             ['Alt+M', 'mute'],
             ['Alt+0', 'ต้น']
           ].map(([key, desc]) => (
