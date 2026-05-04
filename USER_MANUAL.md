@@ -413,7 +413,6 @@ The Style Profile helps maintain consistent writing style across translations.
 | **Ctrl+F** | Find in current column |
 | **Ctrl+G** | Go to glossary panel |
 | **Ctrl+R** | Refresh file tree |
-| **Ctrl+J** | Open terminal |
 | **Ctrl+B** | Toggle sidebar |
 | **Ctrl+Shift+T** | Open TTS settings |
 

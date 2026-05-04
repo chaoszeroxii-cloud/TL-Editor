@@ -30,19 +30,20 @@ export interface VRowPairProps {
   onSrcMultiLinePaste: (i: number, lines: string[]) => void
   onBackspaceAtStart: (i: number, text: string) => void
   onSrcBackspaceAtStart: (i: number, text: string) => void
-  onNavUp: (col: number) => void
-  onNavDown: (col: number) => void
-  onNavLeft: () => void
-  onNavRight: () => void
+  onNavUp: (rowIdx: number, col: number) => void
+  onNavDown: (rowIdx: number, col: number) => void
+  onNavLeft: (rowIdx: number) => void
+  onNavRight: (rowIdx: number) => void
   navCol: number | null
   navDir: 'up' | 'down' | null
   tgtFindRanges?: FindRange[]
   srcFindRanges?: FindRange[]
+  activeMatchIdx?: number
   splitPos?: number
   tone?: ToneName
-  onToneChange?: (tone: ToneName) => void
+  onToneChange?: (rowIdx: number, tone: ToneName) => void
   voiceGender?: VoiceGender
-  onVoiceGenderChange?: (gender: VoiceGender) => void
+  onVoiceGenderChange?: (rowIdx: number, gender: VoiceGender) => void
 }
 
 export const VRowPair = memo(function VRowPair({
@@ -79,6 +80,7 @@ export const VRowPair = memo(function VRowPair({
   navDir,
   tgtFindRanges,
   srcFindRanges,
+  activeMatchIdx,
   splitPos = 50,
   tone = 'normal',
   onToneChange,
@@ -117,6 +119,18 @@ export const VRowPair = memo(function VRowPair({
     (t: string) => onSrcBackspaceAtStart(rowIndex, t),
     [onSrcBackspaceAtStart, rowIndex]
   )
+  const navUp = useCallback((col: number) => onNavUp(rowIndex, col), [onNavUp, rowIndex])
+  const navDown = useCallback((col: number) => onNavDown(rowIndex, col), [onNavDown, rowIndex])
+  const navLeft = useCallback(() => onNavLeft(rowIndex), [onNavLeft, rowIndex])
+  const navRight = useCallback(() => onNavRight(rowIndex), [onNavRight, rowIndex])
+  const toneChanged = useCallback(
+    (nextTone: ToneName) => onToneChange?.(rowIndex, nextTone),
+    [onToneChange, rowIndex]
+  )
+  const voiceGenderChanged = useCallback(
+    (gender: VoiceGender) => onVoiceGenderChange?.(rowIndex, gender),
+    [onVoiceGenderChange, rowIndex]
+  )
 
   const isTgtEditing = isEditing && editingCol === 'tgt'
   const isSrcEditing = isEditing && editingCol === 'src'
@@ -149,17 +163,18 @@ export const VRowPair = memo(function VRowPair({
           onEnterPressed={entered}
           onMultiLinePaste={pasted}
           onBackspaceAtStart={backspaced}
-          onNavUp={onNavUp}
-          onNavDown={onNavDown}
-          onNavLeft={onNavLeft}
-          onNavRight={onNavRight}
+          onNavUp={navUp}
+          onNavDown={navDown}
+          onNavLeft={navLeft}
+          onNavRight={navRight}
           navCol={isTgtEditing ? navCol : null}
           navDir={isTgtEditing ? navDir : null}
           findRanges={tgtFindRanges}
+          activeMatchIdx={activeMatchIdx}
           tone={tone}
-          onToneChange={onToneChange}
+          onToneChange={toneChanged}
           voiceGender={voiceGender}
-          onVoiceGenderChange={onVoiceGenderChange}
+          onVoiceGenderChange={voiceGenderChanged}
         />
       </div>
 
@@ -184,13 +199,14 @@ export const VRowPair = memo(function VRowPair({
           onEnterPressed={srcEntered}
           onMultiLinePaste={srcPasted}
           onBackspaceAtStart={srcBackspaced}
-          onNavUp={onNavUp}
-          onNavDown={onNavDown}
-          onNavLeft={onNavLeft}
-          onNavRight={onNavRight}
+          onNavUp={navUp}
+          onNavDown={navDown}
+          onNavLeft={navLeft}
+          onNavRight={navRight}
           navCol={isSrcEditing ? navCol : null}
           navDir={isSrcEditing ? navDir : null}
           findRanges={srcFindRanges}
+          activeMatchIdx={activeMatchIdx}
           isSrc
         />
       </div>

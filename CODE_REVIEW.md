@@ -18,43 +18,7 @@ This report is organized by **5 comprehensive review criteria** as requested, wi
 
 ## 1️⃣ BUGS & LOGIC ERRORS
 
-### 🔴 [CRITICAL] BUG-001: TypeScript Compilation Error in JsonRawEditorModal.tsx:869
-
-**Location:** [JsonRawEditorModal.tsx:867-871](src/renderer/src/components/JsonManager/JsonRawEditorModal.tsx#L867-L871)
-
-**Issue:**
-
-```typescript
-const newEndPos =
-  newStartPos +
-  newLines
-    .slice(endLineIdx + 1, endLineIdx + 1 + duplicated.length) // ❌ Line break before .join() causes parsing error
-    .join('\n').length
-```
-
-**Problem:** The `.` before `join()` is on a new line after array element access. This creates an ambiguous AST for TypeScript/Prettier, causing compilation failure.
-
-**Error Message:** `Unexpected token .` or similar syntax error
-
-**Impact Assessment:**
-
-- **Blocks entire build process** — app cannot be compiled/deployed
-- **No runtime impact** (never reached)
-- **Affects:** All deployments, CI/CD pipeline
-- **Side Effects:** None (compilation only)
-
-**Recommended Fix:**
-
-```typescript
-const newEndPos =
-  newStartPos + newLines.slice(endLineIdx + 1, endLineIdx + 1 + duplicated.length).join('\n').length
-```
-
-Keep the `.join()` on the same line as the `.slice()` expression.
-
----
-
-### 🔴 [CRITICAL] BUG-002: TypeScript Configuration Deprecation Warning (tsconfig.web.json)
+### 🔴 [CRITICAL] BUG-001: TypeScript Configuration Deprecation Warning (tsconfig.web.json)
 
 **Location:** [tsconfig.web.json:12](tsconfig.web.json#L12)
 
@@ -1633,11 +1597,10 @@ export type { TranslateResult } from './types'
 
 ### Phase 1: BLOCKING ISSUES (Fix before next release)
 
-1. ✅ **BUG-001:** JsonRawEditorModal.tsx line break fix
-2. ✅ **BUG-002:** tsconfig.web.json deprecation
-3. ✅ **SEC-001:** Move API keys to OS Keychain
-4. ✅ **SEC-002:** Implement command whitelist for `run-command`
-5. ✅ **PERF-001:** Add Error Boundaries
+1. ✅ **BUG-001:** tsconfig.web.json deprecation
+2. ✅ **SEC-001:** Move API keys to OS Keychain
+3. ✅ **SEC-002:** Implement command whitelist for `run-command`
+4. ✅ **PERF-001:** Add Error Boundaries
 
 **Estimated effort:** 3-4 hours
 **Impact:** Enables production-ready release

@@ -1,13 +1,23 @@
-import { useRef, useState, useEffect, useCallback, useMemo, memo, JSX } from 'react'
+import {
+  useRef,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  memo,
+  JSX
+} from 'react'
 import type { GlossaryEntry } from '../../types'
 import { AudioPlayer } from '../AudioPlayer'
 import { FindBar } from './FindBar'
 import { ContextMenu } from './ContextMenu'
 import { TranslatePopup } from './TranslatePopup'
 import { VRowPair } from './VRowPair'
-import { escapeRe } from './findHighlight'
 import type { FindMatch, FindRange } from './findHighlight'
-import { filterUsedGlossariesFromRecord, preprocessForTts } from '../../utils/ttsPreprocess'
+import {
+  filterUsedGlossariesFromRecord,
+  preprocessForTtsFromRecords
+} from '../../utils/ttsPreprocess'
 import { hideTooltip } from '../common/tooltipUtils'
 import type { GlossaryLibraries } from '../../utils/glossaryLoader'
 import type { ToneName, VoiceGender } from '../../constants/tones'
@@ -24,6 +34,41 @@ interface TranslatePopupState {
   x: number
   y: number
   selectedText: string
+}
+
+const WORD_CHAR_RE = /[\p{L}\p{N}_]/u
+
+function isWordChar(char: string | undefined): boolean {
+  return !!char && WORD_CHAR_RE.test(char)
+}
+
+function findLiteralMatchRanges(
+  text: string,
+  query: string,
+  caseSensitive: boolean,
+  wholeWord: boolean
+): Array<{ start: number; end: number }> {
+  if (!query) return []
+
+  const haystack = caseSensitive ? text : text.toLocaleLowerCase()
+  const needle = caseSensitive ? query : query.toLocaleLowerCase()
+  const matches: Array<{ start: number; end: number }> = []
+
+  let fromIndex = 0
+  while (fromIndex <= haystack.length - needle.length) {
+    const start = haystack.indexOf(needle, fromIndex)
+    if (start === -1) break
+
+    const end = start + needle.length
+    const before = text[start - 1]
+    const after = text[end]
+    const wholeWordOk = !wholeWord || (!isWordChar(before) && !isWordChar(after))
+
+    if (wholeWordOk) matches.push({ start, end })
+    fromIndex = start + Math.max(needle.length, 1)
+  }
+
+  return matches
 }
 
 export interface DualViewProps {
@@ -56,7 +101,7 @@ export interface DualViewProps {
     outputPath?: string
   }
   ttsGlossaries?: GlossaryLibraries
-  onSaveTtsAudio?: (base64: string, defaultName: string) => Promise<void>
+  onSaveTtsAudio?: (audio: string | Uint8Array, defaultName: string) => Promise<void>
   getLineTone?: (lineIndex: number) => ToneName
   setLineTone?: (lineIndex: number, tone: ToneName) => void
   getLineVoiceGender?: (lineIndex: number) => VoiceGender
@@ -204,7 +249,8 @@ export function DualView({
   const [translatePopup, setTranslatePopup] = useState<TranslatePopupState | null>(null)
   const [ttsBlobUrl, setTtsBlobUrl] = useState<string | null>(null)
   const [ttsLoading, setTtsLoading] = useState(false)
-  const [ttsBytes, setTtsBytes] = useState<string | null>(null)
+  const [ttsBytes, setTtsBytes] = useState<Uint8Array | null>(null)
+  const [ttsBase64, setTtsBase64] = useState<string | null>(null)
 
   // Revoke any outstanding blob URL when the component unmounts
   useEffect(() => {
@@ -214,6 +260,7 @@ export function DualView({
         return null
       })
       setTtsBytes(null)
+      setTtsBase64(null)
     }
   }, [])
 
@@ -243,10 +290,11 @@ export function DualView({
         return null
       })
       setTtsBytes(null)
+      setTtsBase64(null)
       try {
-        const processed = preprocessForTts(text, glossary)
         const filteredBfLib = filterUsedGlossariesFromRecord(text, ttsGlossaries?.bf_lib)
         const filteredAtLib = filterUsedGlossariesFromRecord(text, ttsGlossaries?.at_lib)
+        const processed = preprocessForTtsFromRecords(text, filteredBfLib, filteredAtLib)
 
         // If rowIndex is provided and we have getLineTone, use Novel TTS API with per-line tone
         if (rowIndex !== undefined && rowIndex !== null && getLineTone && ttsConfig?.apiUrl) {
@@ -277,12 +325,9 @@ export function DualView({
           })
 
           if (!response.ok) throw new Error(`Novel TTS API Error: ${response.status}`)
-          const arrayBuffer = await response.arrayBuffer()
-          const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
-          setTtsBlobUrl(
-            URL.createObjectURL(new Blob([new Uint8Array(arrayBuffer)], { type: 'audio/mpeg' }))
-          )
-          setTtsBytes(base64)
+          const bytes = new Uint8Array(await response.arrayBuffer())
+          setTtsBlobUrl(URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' })))
+          setTtsBytes(bytes)
         } else {
           // Fallback to electron IPC
           const ttsResponse = await window.electron.tts(processed, {
@@ -297,7 +342,8 @@ export function DualView({
           const base64 = ttsResponse.data
           const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
           setTtsBlobUrl(URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' })))
-          setTtsBytes(base64)
+          setTtsBytes(bytes)
+          setTtsBase64(base64)
         }
       } catch (e) {
         console.error('TTS failed:', e)
@@ -305,7 +351,7 @@ export function DualView({
         setTtsLoading(false)
       }
     },
-    [ttsLoading, glossary, ttsConfig, ttsGlossaries, getLineTone, getLineVoiceGender]
+    [ttsLoading, ttsConfig, ttsGlossaries, getLineTone, getLineVoiceGender]
   )
 
   // ── Row editing ─────────────────────────────────────────────────────────────
@@ -341,9 +387,19 @@ export function DualView({
   const [activeMatchIdx, setActiveMatchIdx] = useState(0)
   const findInputRef = useRef<HTMLInputElement>(null)
 
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  useEffect(() => {
+    if (!findQuery.trim()) { setDebouncedQuery(''); return }
+    const id = setTimeout(() => setDebouncedQuery(findQuery), 200)
+    return () => clearTimeout(id)
+  }, [findQuery])
+
   const srcRows = useMemo(() => srcContent.split('\n'), [srcContent])
   const tgtRows = useMemo(() => tgtContent.split('\n'), [tgtContent])
+  const cleanSrcRows = useMemo(() => srcRows.map((row) => row.replace('\r', '')), [srcRows])
+  const cleanTgtRows = useMemo(() => tgtRows.map((row) => row.replace('\r', '')), [tgtRows])
   const rowCount = Math.max(srcRows.length, tgtRows.length)
+  const rowIndexes = useMemo(() => Array.from({ length: rowCount }, (_, i) => i), [rowCount])
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const scrollIntoView = useCallback((i: number) => {
@@ -364,34 +420,26 @@ export function DualView({
 
   // ── Find matches ────────────────────────────────────────────────────────────
   const findMatches = useMemo((): FindMatch[] => {
-    if (!findQuery.trim() || !findOpen) return []
-    try {
-      const pat = findWhole ? `\\b${escapeRe(findQuery)}\\b` : escapeRe(findQuery)
-      const re = new RegExp(pat, findCase ? 'g' : 'gi')
-      const all: FindMatch[] = []
-      const searchRows = (rows: string[], col: 'tgt' | 'src'): void => {
-        rows.forEach((text, rowIndex) => {
-          re.lastIndex = 0
-          let m: RegExpExecArray | null
-          while ((m = re.exec(text)) !== null)
-            all.push({ rowIndex, col, start: m.index, end: m.index + m[0].length })
-        })
-      }
-      searchRows(tgtRows, 'tgt')
-      searchRows(srcRows, 'src')
-      return all.sort((a, b) =>
-        a.rowIndex !== b.rowIndex
-          ? a.rowIndex - b.rowIndex
-          : a.col !== b.col
-            ? a.col === 'tgt'
-              ? -1
-              : 1
-            : a.start - b.start
-      )
-    } catch {
-      return []
+    if (!debouncedQuery.trim() || !findOpen) return []
+    const all: FindMatch[] = []
+    const searchRows = (rows: string[], col: 'tgt' | 'src'): void => {
+      rows.forEach((text, rowIndex) => {
+        const ranges = findLiteralMatchRanges(text, debouncedQuery, findCase, findWhole)
+        ranges.forEach(({ start, end }) => all.push({ rowIndex, col, start, end }))
+      })
     }
-  }, [findQuery, findOpen, findCase, findWhole, tgtRows, srcRows])
+    searchRows(cleanTgtRows, 'tgt')
+    searchRows(cleanSrcRows, 'src')
+    return all.sort((a, b) =>
+      a.rowIndex !== b.rowIndex
+        ? a.rowIndex - b.rowIndex
+        : a.col !== b.col
+          ? a.col === 'tgt'
+            ? -1
+            : 1
+          : a.start - b.start
+    )
+  }, [debouncedQuery, findOpen, findCase, findWhole, cleanTgtRows, cleanSrcRows])
 
   const safeActiveIdx =
     findMatches.length > 0 ? Math.min(activeMatchIdx, findMatches.length - 1) : 0
@@ -406,12 +454,10 @@ export function DualView({
     const map = new Map<number, { tgt: FindRange[]; src: FindRange[] }>()
     findMatches.forEach((m, idx) => {
       if (!map.has(m.rowIndex)) map.set(m.rowIndex, { tgt: [], src: [] })
-      map
-        .get(m.rowIndex)!
-        [m.col].push({ start: m.start, end: m.end, current: idx === safeActiveIdx })
+      map.get(m.rowIndex)![m.col].push({ start: m.start, end: m.end, matchIdx: idx })
     })
     return map
-  }, [findMatches, safeActiveIdx])
+  }, [findMatches])
 
   const goNext = useCallback(() => {
     if (findMatches.length) setActiveMatchIdx((i) => (i + 1) % findMatches.length)
@@ -440,17 +486,27 @@ export function DualView({
 
   const handleReplaceAll = useCallback(() => {
     if (!findQuery.trim()) return
-    try {
-      const pat = findWhole ? `\\b${escapeRe(findQuery)}\\b` : escapeRe(findQuery)
-      const re = new RegExp(pat, findCase ? 'g' : 'gi')
-      const newTgt = tgtContent.replace(re, replaceVal)
-      if (newTgt !== tgtContent) onTgtChange(newTgt)
-      const newSrc = srcContent.replace(re, replaceVal)
-      if (newSrc !== srcContent) onSrcChange?.(newSrc)
-      setActiveMatchIdx(0)
-    } catch {
-      /* invalid regex */
+    const replaceAllLiteral = (content: string): string => {
+      const rows = content.split('\n')
+      const nextRows = rows.map((row) => {
+        const ranges = findLiteralMatchRanges(row, findQuery, findCase, findWhole)
+        if (!ranges.length) return row
+        let cursor = 0
+        let next = ''
+        ranges.forEach(({ start, end }) => {
+          next += row.slice(cursor, start) + replaceVal
+          cursor = end
+        })
+        return next + row.slice(cursor)
+      })
+      return nextRows.join('\n')
     }
+
+    const newTgt = replaceAllLiteral(tgtContent)
+    if (newTgt !== tgtContent) onTgtChange(newTgt)
+    const newSrc = replaceAllLiteral(srcContent)
+    if (newSrc !== srcContent) onSrcChange?.(newSrc)
+    setActiveMatchIdx(0)
   }, [findQuery, findCase, findWhole, replaceVal, tgtContent, srcContent, onTgtChange, onSrcChange])
 
   // ── Keyboard: Ctrl+F / Ctrl+H / Alt+C / Alt+W ──────────────────────────────
@@ -627,6 +683,34 @@ export function DualView({
     [srcRows, onSrcChange]
   )
 
+  const startEditingRow = useCallback((idx: number, col: 'tgt' | 'src') => {
+    hideTooltip()
+    setEditingRow(idx)
+    setEditingCol(col)
+  }, [])
+
+  const handleRowNavUp = useCallback(
+    (rowIdx: number, col: number) => handleNavUp(col, rowIdx),
+    [handleNavUp]
+  )
+  const handleRowNavDown = useCallback(
+    (rowIdx: number, col: number) => handleNavDown(col, rowIdx, rowCount - 1),
+    [handleNavDown, rowCount]
+  )
+  const handleRowNavLeft = useCallback((rowIdx: number) => handleNavLeft(rowIdx), [handleNavLeft])
+  const handleRowNavRight = useCallback(
+    (rowIdx: number) => handleNavRight(rowIdx, rowCount - 1),
+    [handleNavRight, rowCount]
+  )
+  const handleRowToneChange = useCallback(
+    (rowIdx: number, tone: ToneName) => setLineTone?.(rowIdx, tone),
+    [setLineTone]
+  )
+  const handleRowVoiceGenderChange = useCallback(
+    (rowIdx: number, gender: VoiceGender) => setLineVoiceGender?.(rowIdx, gender),
+    [setLineVoiceGender]
+  )
+
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div
@@ -690,7 +774,7 @@ export function DualView({
         onContextMenu={handleContextMenu}
       >
         <div>
-          {Array.from({ length: rowCount }, (_, i) => {
+          {rowIndexes.map((i) => {
             const rowFind = findByRow.get(i)
             const currentTone = getLineTone ? (getLineTone(i) as ToneName) : 'normal'
             const currentVoiceGender: VoiceGender = (getLineVoiceGender?.(i) ||
@@ -700,18 +784,14 @@ export function DualView({
                 key={i}
                 rowIndex={i}
                 rowNum={i + 1}
-                tgtText={(tgtRows[i] ?? '').replace('\r', '')}
-                srcText={(srcRows[i] ?? '').replace('\r', '')}
+                tgtText={cleanTgtRows[i] ?? ''}
+                srcText={cleanSrcRows[i] ?? ''}
                 glossary={glossary}
                 isActive={activeRow === i}
                 onMouseEnter={onRowFocus}
                 isEditing={editingRow === i}
                 editingCol={editingRow === i ? editingCol : 'tgt'}
-                onStartEdit={(idx, col) => {
-                  hideTooltip() // ปิด tooltip ทันที
-                  setEditingRow(idx)
-                  setEditingCol(col)
-                }}
+                onStartEdit={startEditingRow}
                 onStopEdit={setEditingRow}
                 onCommit={handleTgtEdit}
                 onSrcCommit={handleSrcEdit}
@@ -727,21 +807,20 @@ export function DualView({
                 onSrcBackspaceAtStart={handleSrcBackspaceAtStart}
                 focusAtStart={editingRow === i && focusAtStart}
                 pendingCursor={editingRow === i ? pendingCursor : null}
-                onNavUp={(col) => handleNavUp(col, i)}
-                onNavDown={(col) => handleNavDown(col, i, rowCount - 1)}
-                onNavLeft={() => handleNavLeft(i)}
-                onNavRight={() => handleNavRight(i, rowCount - 1)}
+                onNavUp={handleRowNavUp}
+                onNavDown={handleRowNavDown}
+                onNavLeft={handleRowNavLeft}
+                onNavRight={handleRowNavRight}
                 navCol={editingRow === i ? navCol : null}
                 navDir={editingRow === i ? navDir : null}
                 tgtFindRanges={rowFind?.tgt}
                 srcFindRanges={rowFind?.src}
+                activeMatchIdx={rowFind ? safeActiveIdx : undefined}
                 splitPos={splitPos}
                 tone={currentTone}
-                onToneChange={setLineTone ? (tone) => setLineTone(i, tone) : undefined}
+                onToneChange={handleRowToneChange}
                 voiceGender={currentVoiceGender}
-                onVoiceGenderChange={
-                  setLineVoiceGender ? (gender) => setLineVoiceGender(i, gender) : undefined
-                }
+                onVoiceGenderChange={handleRowVoiceGenderChange}
               />
             )
           })}
@@ -819,12 +898,12 @@ export function DualView({
           }}
         >
           {/* 💾 Save MP3 button — appears above the audio player */}
-          {ttsBytes && onSaveTtsAudio && (
+          {(ttsBytes || ttsBase64) && onSaveTtsAudio && (
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
                 onClick={() => {
                   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-                  onSaveTtsAudio(ttsBytes, `tts_${ts}.mp3`)
+                  onSaveTtsAudio(ttsBase64 ?? ttsBytes!, `tts_${ts}.mp3`)
                 }}
                 style={{
                   background: 'var(--bg2)',

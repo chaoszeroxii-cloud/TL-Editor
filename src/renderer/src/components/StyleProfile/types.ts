@@ -77,7 +77,7 @@ export interface StyleProfileStore {
 
   // Actions
   addCorrection: (before: string, after: string, sourceFile?: string) => void
-  analyze: (apiKey: string) => Promise<void>
+  analyze: (apiKey: string, model?: string) => Promise<void>
   clearCorrections: () => void
   resetProfile: () => void
   loadProfile: (raw: StyleProfile) => void

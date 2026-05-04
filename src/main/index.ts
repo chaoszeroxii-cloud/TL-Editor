@@ -2,13 +2,13 @@
 import { app, BrowserWindow, session, protocol } from 'electron'
 import { join } from 'path'
 import crypto from 'crypto'
-import { readFile, stat } from 'fs/promises'
+import { stat } from 'fs/promises'
 import { extname } from 'path'
+import { Readable } from 'stream'
 
 import { registerConfigHandlers } from './ipc/config'
 import { registerFsHandlers } from './ipc/fs'
 import { registerDialogHandlers } from './ipc/dialog'
-import { registerShellHandlers } from './ipc/shell'
 import { registerExternalHandlers } from './ipc/external'
 import { assertPathAllowed } from './ipc/pathAccess'
 
@@ -107,27 +107,12 @@ app.whenReady().then(() => {
 
           const { createReadStream } = await import('fs')
           const stream = createReadStream(filePath, { start, end })
-          const chunks: Buffer[] = []
 
-          await new Promise<void>((resolve, reject) => {
-            stream.on('data', (chunk) => {
-              if (typeof chunk === 'string') {
-                chunks.push(Buffer.from(chunk))
-              } else {
-                chunks.push(chunk)
-              }
-            })
-            stream.on('end', () => resolve())
-            stream.on('error', reject)
-          })
-
-          const buffer = Buffer.concat(chunks)
-
-          return new Response(buffer, {
+          return new Response(Readable.toWeb(stream) as ReadableStream, {
             status: 206,
             headers: {
               'Content-Type': contentType,
-              'Content-Length': buffer.length.toString(),
+              'Content-Length': String(end - start + 1),
               'Content-Range': `bytes ${start}-${end}/${stats.size}`,
               'Accept-Ranges': 'bytes'
             }
@@ -136,8 +121,9 @@ app.whenReady().then(() => {
       }
 
       // Full file response
-      const fileBuffer = await readFile(filePath)
-      return new Response(fileBuffer, {
+      const { createReadStream } = await import('fs')
+      const stream = createReadStream(filePath)
+      return new Response(Readable.toWeb(stream) as ReadableStream, {
         status: 200,
         headers: {
           'Content-Type': contentType,
@@ -194,7 +180,6 @@ app.whenReady().then(() => {
   registerConfigHandlers()
   registerFsHandlers()
   registerDialogHandlers()
-  registerShellHandlers()
   registerExternalHandlers()
 
   createWindow()

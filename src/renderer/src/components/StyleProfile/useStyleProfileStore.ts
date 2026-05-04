@@ -130,7 +130,7 @@ export function useStyleProfileStore(rootDir: string | null): StyleProfileStore 
   // ── Run AI analysis ───────────────────────────────────────────────────────
 
   const analyze = useCallback(
-    async (apiKey: string) => {
+    async (apiKey: string, model?: string) => {
       const p = profileRef.current
       if (!p || p.corrections.length < 3) {
         setAnalyzeError('ต้องมีอย่างน้อย 3 corrections ก่อน analyze')
@@ -147,7 +147,8 @@ export function useStyleProfileStore(rootDir: string | null): StyleProfileStore 
       try {
         const { styleGuide, promptSnippet, patterns } = await runStyleAnalysis(
           p.corrections,
-          apiKey
+          apiKey,
+          model
         )
 
         setProfile((prev) => {

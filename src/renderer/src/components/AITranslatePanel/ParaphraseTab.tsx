@@ -128,6 +128,7 @@ const MODES: Record<ParaphraseMode, { label: string; emoji: string; prompt: stri
 
 export interface ParaphraseTabProps {
   apiKey: string
+  model?: string
   stylePromptSnippet: string
   /**
    * Called when user clicks → TGT.
@@ -152,6 +153,7 @@ let _histId = 0
 
 export function ParaphraseTab({
   apiKey,
+  model = 'deepseek/deepseek-v4-flash',
   stylePromptSnippet,
   onPushToTgt,
   initialInput
@@ -201,7 +203,7 @@ export function ParaphraseTab({
 
       const response = await window.electron.openrouterChat({
         apiKey: apiKey.trim(),
-        model: 'deepseek/deepseek-v4-flash',
+        model,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: input.trim() }
@@ -232,7 +234,7 @@ export function ParaphraseTab({
       setStatus('error')
       setStatusMsg(e instanceof Error ? e.message : String(e))
     }
-  }, [apiKey, input, mode, stylePromptSnippet, status])
+  }, [apiKey, model, input, mode, stylePromptSnippet, status])
 
   // ── Accept / Reject ─────────────────────────────────────────────────────────
   const toggleSeg = useCallback((id: number) => {

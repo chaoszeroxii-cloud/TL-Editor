@@ -72,12 +72,12 @@ export function useGlossaryStore(): GlossaryStore {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   const mergeEntries = useCallback((incoming: GlossaryEntry[]) => {
-    setGlossary((prev) => {
+    _setGlossary((prev) => {
       const currentEntries = Array.isArray(prev) ? prev : []
       const srcSet = new Set(incoming.map((e) => e.src))
       return [...currentEntries.filter((e) => !srcSet.has(e.src)), ...incoming]
     })
-  }, [])
+  }, [_setGlossary])
 
   const saveFileEntries = useCallback(
     async (fileName: string, allEntries: GlossaryEntry[]) => {
@@ -219,9 +219,10 @@ export function useGlossaryStore(): GlossaryStore {
       if (newFile) filesToUpdate.add(newFile)
 
       const updates: Array<Promise<void>> = []
+      const currentGlossary = Array.isArray(glossaryRef.current) ? glossaryRef.current : []
       for (const fileName of filesToUpdate) {
         if (sourceFilePaths[fileName]) {
-          const fileEntries = glossaryRef.current.filter((g) => g._file === fileName)
+          const fileEntries = currentGlossary.filter((g) => g._file === fileName)
           updates.push(saveFileEntries(fileName, fileEntries))
         }
       }
@@ -242,7 +243,8 @@ export function useGlossaryStore(): GlossaryStore {
       // But to be safe, ensure the entry is included in the file save
       if (sourceFilePaths[targetFile]) {
         try {
-          const currentFileEntries = glossaryRef.current.filter((g) => g._file === targetFile)
+          const currentGlossary = Array.isArray(glossaryRef.current) ? glossaryRef.current : []
+          const currentFileEntries = currentGlossary.filter((g) => g._file === targetFile)
           // Check if entry is already in the list (by src)
           const exists = currentFileEntries.some((g) => g.src === entry.src)
           const fileEntries = exists ? currentFileEntries : [...currentFileEntries, entry]
@@ -258,30 +260,22 @@ export function useGlossaryStore(): GlossaryStore {
 
   const saveDeleteEntry = useCallback(
     async (original: GlossaryEntry) => {
-      // Use state updater to get the current glossary state
-      _setGlossary((currentGlossary) => {
-        // Delete by src + th values, not by object reference (which may not match)
-        const next = currentGlossary.filter(
-          (g) => !(g.src === original.src && g.th === original.th)
-        )
-
-        // Fire off async save in the background
-        const targetFile = original._file
-        if (targetFile && sourceFilePaths[targetFile]) {
-          ;(async () => {
-            try {
-              const fileEntries = next.filter((g) => g._file === targetFile)
-              await saveFileEntries(targetFile, fileEntries)
-            } catch (e) {
-              console.error('Auto-save after delete failed:', e)
-            }
-          })()
+      // State is already updated by GlossaryPanel's handleDelete
+      // Just save to file here
+      const targetFile = original._file
+      if (targetFile && sourceFilePaths[targetFile]) {
+        try {
+          const currentGlossary = Array.isArray(glossaryRef.current) ? glossaryRef.current : []
+          const fileEntries = currentGlossary.filter(
+            (g) => g._file === targetFile && !(g.src === original.src && g.th === original.th)
+          )
+          await saveFileEntries(targetFile, fileEntries)
+        } catch (e) {
+          console.error('Auto-save after delete failed:', e)
         }
-
-        return next
-      })
+      }
     },
-    [_setGlossary, sourceFilePaths, saveFileEntries]
+    [glossaryRef, sourceFilePaths, saveFileEntries]
   )
 
   // ── Reset (on folder change) ──────────────────────────────────────────────

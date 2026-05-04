@@ -65,9 +65,6 @@ export interface AITranslateConfig {
 export interface EnvConfig {
   folderPath: string | null
   jsonPaths: string[]
-  pythonExe: string | null
-  pythonScript: string | null
-  pythonCwd: string | null
   hasConfig: boolean
   aiApiKey: string
   aiPromptPath: string
@@ -79,14 +76,15 @@ export interface EnvConfig {
   ttsVoiceName: string
   ttsRate: string
   ttsOutputPath: string
+  mp4OutputPath: string
+  mp4ImagePath: string
+  mp4FilenamePrefix: string
+  pairingSourcePath: string
 }
 
 export interface SaveConfigPayload {
   folderPath?: string | null
   jsonPaths?: string[]
-  pythonExe?: string
-  pythonScript?: string
-  pythonCwd?: string
   aiApiKey?: string
   aiPromptPath?: string
   aiGlossaryPath?: string
@@ -97,4 +95,8 @@ export interface SaveConfigPayload {
   ttsVoiceName?: string
   ttsRate?: string
   ttsOutputPath?: string
+  mp4OutputPath?: string
+  mp4ImagePath?: string
+  mp4FilenamePrefix?: string
+  pairingSourcePath?: string
 }

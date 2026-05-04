@@ -1,17 +1,13 @@
 /**
  * SetupWizard — shown on first run when no config.json exists
- * 3 steps: Folder → Glossary JSON files → Python (optional)
+ * 2 steps: Folder → Glossary JSON files
  */
-import { useState, JSX } from 'react'
-import { IcoFolder, IcoJson, IcoPython, IcoCheck, IcoX } from '../common/icons'
+import { useState, type CSSProperties, type JSX } from 'react'
+import { IcoFolder, IcoJson, IcoCheck, IcoX } from '../common/icons'
+import type { SaveConfigPayload } from '../../types'
 
-export interface SetupConfig {
-  folderPath: string | null
-  jsonPaths: string[]
-  pythonExe: string
-  pythonScript: string
-  pythonCwd: string
-}
+export type SetupConfig = Required<Pick<SaveConfigPayload, 'jsonPaths'>> &
+  Pick<SaveConfigPayload, 'folderPath'>
 
 interface SetupWizardProps {
   onDone: (cfg: SetupConfig) => void
@@ -94,19 +90,9 @@ export function SetupWizard({ onDone }: SetupWizardProps): JSX.Element {
   // Step 1 — JSON files
   const [jsonPaths, setJsonPaths] = useState<string[]>([])
 
-  // Step 2 — Python (optional)
-  const [pythonExe, setPythonExe] = useState('')
-  const [pythonScripts, setPythonScripts] = useState<string[]>([])
-  const [pythonCwd, setPythonCwd] = useState('')
-  const [detectedPythons, setDetectedPythons] = useState<{ label: string; path: string }[] | null>(
-    null
-  )
-  const [detecting, setDetecting] = useState(false)
-
   const steps = [
     { label: 'โฟลเดอร์', icon: <IcoFolder size={18} stroke="currentColor" /> },
-    { label: 'Glossary', icon: <IcoJson size={18} stroke="currentColor" /> },
-    { label: 'Python', icon: <IcoPython size={18} stroke="currentColor" /> }
+    { label: 'Glossary', icon: <IcoJson size={18} stroke="currentColor" /> }
   ]
 
   // ── Handlers ────────────────────────────────────────────────────────────────
@@ -120,79 +106,16 @@ export function SetupWizard({ onDone }: SetupWizardProps): JSX.Element {
     if (p && !jsonPaths.includes(p)) setJsonPaths((prev) => [...prev, p])
   }
 
-  const detectPython = async (): Promise<void> => {
-    setDetecting(true)
-    setDetectedPythons(null)
-    try {
-      const list = await window.electron.detectPython()
-      setDetectedPythons(list)
-    } finally {
-      setDetecting(false)
-    }
-  }
-
-  const browsePythonExe = async (): Promise<void> => {
-    const p = await window.electron.openFile([
-      { name: 'Python Executable', extensions: ['exe', '*'] }
-    ])
-    if (p) selectInterpreter(p)
-  }
-
-  const [pipStatus, setPipStatus] = useState<'idle' | 'installing' | 'done' | 'error'>('idle')
-  const [pipLog, setPipLog] = useState('')
-
-  const REQUIRED_PACKAGES = ['edge-tts', 'python-dotenv', 'sympy']
-
-  const installPackages = async (exePath: string): Promise<void> => {
-    setPipStatus('installing')
-    setPipLog('')
-    try {
-      const result = await window.electron.installPythonPackages(exePath, REQUIRED_PACKAGES)
-      if (result.exitCode === 0) {
-        setPipStatus('done')
-        setPipLog('ติดตั้งสำเร็จ')
-      } else {
-        setPipStatus('error')
-        setPipLog(result.stderr || result.stdout || 'ติดตั้งล้มเหลว')
-      }
-    } catch (e) {
-      setPipStatus('error')
-      setPipLog(String(e))
-    }
-  }
-
-  const selectInterpreter = (path: string): void => {
-    setPythonExe(path)
-    setDetectedPythons(null)
-    installPackages(path)
-  }
-
-  const browsePythonScript = async (): Promise<void> => {
-    const p = await window.electron.openFile([{ name: 'Python Script', extensions: ['py'] }])
-    if (p && !pythonScripts.includes(p)) setPythonScripts((prev) => [...prev, p])
-  }
-
-  const browsePythonCwd = async (): Promise<void> => {
-    const p = await window.electron.openFolder()
-    if (p) setPythonCwd(p)
-  }
-
   const handleFinish = async (): Promise<void> => {
-    const cfg = {
+    const cfg: SaveConfigPayload = {
       folderPath: folderPath.trim() || undefined,
-      jsonPaths: jsonPaths.filter(Boolean),
-      pythonExe: pythonExe.trim() || undefined,
-      pythonScript: pythonScripts.filter(Boolean).join(',') || undefined,
-      pythonCwd: pythonCwd.trim() || undefined
-    } as const
+      jsonPaths: jsonPaths.filter(Boolean)
+    }
     // Use patch to preserve other config fields (aiApiKey, ttsApiKey, etc.)
     await window.electron.saveConfigPatch(cfg)
     onDone({
       folderPath: cfg.folderPath ?? null,
-      jsonPaths: cfg.jsonPaths,
-      pythonExe: cfg.pythonExe ?? '',
-      pythonScript: cfg.pythonScript ?? '',
-      pythonCwd: cfg.pythonCwd ?? ''
+      jsonPaths: cfg.jsonPaths ?? []
     })
   }
 
@@ -263,309 +186,12 @@ export function SetupWizard({ onDone }: SetupWizardProps): JSX.Element {
         </div>
       )
 
-    // step === 2
-    return (
-      <div style={s.stepBody}>
-        <div style={s.stepIcon}>
-          <IcoPython size={18} stroke="currentColor" />
-        </div>
-        <div style={s.stepTitle}>
-          Python Script{' '}
-          <span style={{ color: 'var(--text2)', fontWeight: 400, fontSize: 12 }}>(optional)</span>
-        </div>
-        <div style={s.stepDesc}>ตั้งค่าสำหรับ Terminal Panel — ข้ามได้ทั้งหมด</div>
-
-        <label style={s.label}>Python Executable</label>
-
-        {/* Selected interpreter chip */}
-        {pythonExe && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{ ...s.fileChip, marginBottom: 0 }}>
-              <span style={{ color: 'var(--hl-teal)', display: 'flex', flexShrink: 0 }}>
-                <IcoPython size={18} stroke="currentColor" />
-              </span>
-              <span style={s.fileChipName}>{pythonExe.split(/[\\/]/).pop()}</span>
-              <span style={s.fileChipPath}>{pythonExe}</span>
-              <button
-                onClick={() => {
-                  setPythonExe('')
-                  setDetectedPythons(null)
-                  setPipStatus('idle')
-                  setPipLog('')
-                }}
-                style={s.removeBtn}
-              >
-                <IcoX size={12} stroke="currentColor" />
-              </button>
-            </div>
-
-            {/* pip install status */}
-            {pipStatus === 'installing' && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '8px 10px',
-                  background: 'var(--bg2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 6
-                }}
-              >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="var(--hl-teal)"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }}
-                >
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                </svg>
-                <div>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--hl-teal)',
-                      fontFamily: 'var(--font-mono)'
-                    }}
-                  >
-                    กำลังติดตั้ง packages…
-                  </div>
-                  <div
-                    style={{ fontSize: 10, color: 'var(--text2)', fontFamily: 'var(--font-mono)' }}
-                  >
-                    {REQUIRED_PACKAGES.join(', ')}
-                  </div>
-                </div>
-              </div>
-            )}
-            {pipStatus === 'done' && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '8px 10px',
-                  background: 'rgba(62,207,160,0.08)',
-                  border: '1px solid rgba(62,207,160,0.3)',
-                  borderRadius: 6
-                }}
-              >
-                <IcoCheck size={18} stroke="currentColor" />
-                <div
-                  style={{ fontSize: 11, color: 'var(--hl-teal)', fontFamily: 'var(--font-mono)' }}
-                >
-                  ติดตั้ง packages สำเร็จ
-                </div>
-              </div>
-            )}
-            {pipStatus === 'error' && (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 4,
-                  padding: '8px 10px',
-                  background: 'rgba(240,122,106,0.08)',
-                  border: '1px solid rgba(240,122,106,0.3)',
-                  borderRadius: 6
-                }}
-              >
-                <div
-                  style={{ fontSize: 11, color: 'var(--hl-coral)', fontFamily: 'var(--font-mono)' }}
-                >
-                  ⚠ ติดตั้งล้มเหลว — ลองรันใน terminal เอง:
-                </div>
-                <code
-                  style={{
-                    fontSize: 10,
-                    color: 'var(--text2)',
-                    fontFamily: 'var(--font-mono)',
-                    wordBreak: 'break-all'
-                  }}
-                >
-                  pip install {REQUIRED_PACKAGES.join(' ')}
-                </code>
-                {pipLog && (
-                  <div
-                    style={{
-                      fontSize: 9,
-                      color: 'var(--text2)',
-                      fontFamily: 'var(--font-mono)',
-                      opacity: 0.6,
-                      maxHeight: 60,
-                      overflowY: 'auto'
-                    }}
-                  >
-                    {pipLog}
-                  </div>
-                )}
-                <button
-                  onClick={() => installPackages(pythonExe)}
-                  style={{
-                    ...s.addFileBtn,
-                    fontSize: 10,
-                    padding: '4px 10px',
-                    alignSelf: 'flex-start'
-                  }}
-                >
-                  ลองใหม่
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Detect + Browse buttons */}
-        {!pythonExe && (
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button
-              onClick={detectPython}
-              disabled={detecting}
-              style={{
-                ...s.addFileBtn,
-                flex: 1,
-                textAlign: 'center',
-                opacity: detecting ? 0.6 : 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6
-              }}
-            >
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-              {detecting ? 'กำลังค้นหา…' : 'ค้นหา Python อัตโนมัติ'}
-            </button>
-            <button onClick={browsePythonExe} style={s.browseBtn}>
-              Browse…
-            </button>
-          </div>
-        )}
-
-        {/* Detected list */}
-        {detectedPythons !== null && !pythonExe && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {detectedPythons.length === 0 ? (
-              <div
-                style={{
-                  fontSize: 11,
-                  color: 'var(--hl-coral)',
-                  fontFamily: 'var(--font-mono)',
-                  padding: '6px 2px'
-                }}
-              >
-                ไม่พบ Python — ลอง Browse… แทน
-              </div>
-            ) : (
-              detectedPythons.map((py, i) => (
-                <button
-                  key={i}
-                  onClick={() => selectInterpreter(py.path)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '8px 10px',
-                    background: 'var(--bg2)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 6,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    width: '100%',
-                    transition: 'border-color 0.1s'
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--accent)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border)')}
-                >
-                  <span style={{ color: 'var(--hl-teal)', display: 'flex', flexShrink: 0 }}>
-                    <IcoPython size={18} stroke="currentColor" />
-                  </span>
-                  <div style={{ minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontSize: 12,
-                        color: 'var(--text0)',
-                        fontFamily: 'var(--font-mono)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                      }}
-                    >
-                      {py.label.split('—')[0].trim()}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 10,
-                        color: 'var(--text2)',
-                        fontFamily: 'var(--font-mono)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                      }}
-                    >
-                      {py.path}
-                    </div>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        )}
-
-        <label style={s.label}>Script Path</label>
-        <button onClick={browsePythonScript} style={s.addFileBtn}>
-          + เพิ่ม Script
-        </button>
-        {pythonScripts.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {pythonScripts.map((p, i) => (
-              <div key={i} style={s.fileChip}>
-                <span style={{ color: 'var(--hl-teal)', display: 'flex', flexShrink: 0 }}>
-                  <IcoPython size={18} stroke="currentColor" />
-                </span>
-                <span style={s.fileChipName}>{p.split(/[\\/]/).pop()}</span>
-                <span style={s.fileChipPath}>{p}</span>
-                <button
-                  onClick={() => setPythonScripts((prev) => prev.filter((_, j) => j !== i))}
-                  style={s.removeBtn}
-                >
-                  <IcoX size={12} stroke="currentColor" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <label style={s.label}>Working Directory</label>
-        <BrowseInput
-          value={pythonCwd}
-          placeholder="D:/scripts"
-          onChange={setPythonCwd}
-          onBrowse={browsePythonCwd}
-        />
-      </div>
-    )
+    return <div />
   }
 
   return (
     <div style={s.backdrop}>
       <div style={s.modal}>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         {/* Header */}
         <div style={s.header}>
           <span style={s.logo}>TL/EDITOR</span>
@@ -618,7 +244,7 @@ export function SetupWizard({ onDone }: SetupWizardProps): JSX.Element {
             ← ย้อนกลับ
           </button>
           <div style={{ display: 'flex', gap: 8 }}>
-            {step < 2 ? (
+            {step < steps.length - 1 ? (
               <>
                 <button style={s.btnSkip} onClick={() => setStep((v) => v + 1)}>
                   ข้าม
@@ -645,7 +271,7 @@ export function SetupWizard({ onDone }: SetupWizardProps): JSX.Element {
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
-const s: Record<string, React.CSSProperties> = {
+const s: Record<string, CSSProperties> = {
   backdrop: {
     position: 'fixed',
     inset: 0,

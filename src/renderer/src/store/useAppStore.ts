@@ -36,8 +36,6 @@ export interface AppStore {
   setMp3ConverterOpen: Dispatch<SetStateAction<boolean>>
   aiPanelOpen: boolean
   setAiPanelOpen: Dispatch<SetStateAction<boolean>>
-  jsonManagerOpen: boolean
-  setJsonManagerOpen: Dispatch<SetStateAction<boolean>>
 
   // Panel Toggles
   toggleSidebar: () => void
@@ -45,7 +43,6 @@ export interface AppStore {
   toggleTerminal: () => void
   toggleMp3Converter: () => void
   toggleAiPanel: () => void
-  toggleJsonManager: (hasFiles: boolean) => void
 
   // AI Config
   aiConfig: AITranslateConfig
@@ -53,7 +50,6 @@ export interface AppStore {
   handleAiConfigChange: (cfg: AITranslateConfig) => void
   styleProfileOpen: boolean
   setStyleProfileOpen: Dispatch<SetStateAction<boolean>>
-  toggleStyleProfile: () => void
 
   // TTS Config
   ttsConfig: TtsApiConfig
@@ -78,16 +74,12 @@ export function useAppStore(): AppStore {
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [mp3ConverterOpen, setMp3ConverterOpen] = useState(false)
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
-  const [jsonManagerOpen, setJsonManagerOpen] = useState(false)
 
   const toggleSidebar = useCallback(() => setSidebarVisible((v) => !v), [])
   const toggleGlossary = useCallback(() => setGlossaryVisible((v) => !v), [])
   const toggleTerminal = useCallback(() => setTerminalOpen((v) => !v), [])
   const toggleMp3Converter = useCallback(() => setMp3ConverterOpen((v) => !v), [])
   const toggleAiPanel = useCallback(() => setAiPanelOpen((v) => !v), [])
-  const toggleJsonManager = useCallback((hasFiles: boolean) => {
-    if (hasFiles) setJsonManagerOpen((v) => !v)
-  }, [])
 
   // ── AI config ────────────────────────────────────────────────────────────
   const [aiConfig, setAiConfig] = useState<AITranslateConfig>({
@@ -108,7 +100,6 @@ export function useAppStore(): AppStore {
   }, [])
 
   const [styleProfileOpen, setStyleProfileOpen] = useState(false)
-  const toggleStyleProfile = useCallback(() => setStyleProfileOpen((v) => !v), [])
 
   // ── TTS config ────────────────────────────────────────────────────────────
   const [ttsConfig, setTtsConfig] = useState<TtsApiConfig>(DEFAULT_TTS_CONFIG)
@@ -149,16 +140,12 @@ export function useAppStore(): AppStore {
     aiPanelOpen,
     setAiPanelOpen,
     toggleAiPanel,
-    jsonManagerOpen,
-    setJsonManagerOpen,
-    toggleJsonManager,
 
     aiConfig,
     setAiConfig,
     handleAiConfigChange,
     styleProfileOpen,
     setStyleProfileOpen,
-    toggleStyleProfile,
 
     ttsConfig,
     setTtsConfig,

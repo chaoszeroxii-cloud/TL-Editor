@@ -79,11 +79,6 @@ src/
 │       │   ├── PythonTab.tsx            ★ NEW — full python runner UI (~300 lines)
 │       │   └── index.tsx                ★ NEW — panel shell (resize, tabs, terminal input)
 │       │
-│       ├── JsonManager/                 ★ NEW folder
-│       │   ├── exports.ts               ← barrel
-│       │   ├── syntaxHighlight.ts       ★ NEW — highlightJson, escapeRe, getLineAt, lineStartPos
-│       │   └── JsonRawEditorModal.tsx   ★ UPDATED — imports from syntaxHighlight.ts
-│       │
 │       ├── AudioPlayer/                 ★ NEW folder
 │       │   ├── exports.ts               ← barrel
 │       │   ├── VolSlider.tsx            ★ NEW — draggable volume slider
@@ -92,7 +87,7 @@ src/
 │       ├── common/                      ★ NEW folder
 │       │   ├── exports.ts               ← barrel
 │       │   ├── Tooltip.tsx              ★ MOVED — showTooltip, hideTooltip, Tooltip
-│       │   ├── FindBar.tsx              ★ NEW — shared FindBar (variant='dual'|'json')
+│       │   ├── FindBar.tsx              ★ NEW — shared FindBar for editor search flows
 │       │   └── icons.tsx                ← all SVG icons (IcoFolder, IcoFile, …)
 │       │
 │       └── setup/                       ★ NEW folder
@@ -138,14 +133,6 @@ import { OutputView } from './components/Terminal/OutputView'
 import type { OutputLine } from './components/Terminal/OutputView'
 ```
 
-### JsonManager
-
-```ts
-import { JsonRawEditorModal } from './components/JsonManager'
-// syntax util:
-import { highlightJson } from './components/JsonManager/syntaxHighlight'
-```
-
 ### AudioPlayer
 
 ```ts
@@ -185,28 +172,12 @@ import type { SetupConfig } from './components/setup/SetupWizard'
 | `AudioPlayer.tsx`              | `AudioPlayer/index.tsx` + `VolSlider.tsx`                                         |
 | `GlossaryEditor.tsx`           | `GlossaryEditor/index.tsx` + `parsers.ts`                                         |
 | `GlossaryPanel.tsx`            | unchanged + `GlossaryPanel/CascadingPathSelect.tsx` extracted                     |
-| `JsonRawEditorModal.tsx`       | `JsonManager/JsonRawEditorModal.tsx` + `syntaxHighlight.ts`                       |
 | `TerminalPanel.tsx`            | `Terminal/index.tsx` + `OutputView.tsx` + `ScriptPathInput.tsx` + `PythonTab.tsx` |
 | `Tooltip.tsx`                  | `common/Tooltip.tsx` (moved, imports fixed)                                       |
 | `SetupWizard.tsx`              | `setup/SetupWizard.tsx` (moved)                                                   |
 | _(App.tsx keyboard handlers)_  | `hooks/useKeyboardShortcuts.ts`                                                   |
 | _(App.tsx file pairing logic)_ | `hooks/useChapterPairing.ts`                                                      |
 | _(App.tsx JSON auto-import)_   | `hooks/useAutoImport.ts`                                                          |
-| _(new shared component)_       | `common/FindBar.tsx` (replaces duplicate FindBar in DualView + JsonManager)       |
+| _(new shared component)_       | `common/FindBar.tsx` (used by editor search flows)                                |
 
 ---
-
-## FindBar variant usage
-
-`common/FindBar` supports two visual variants via the `variant` prop:
-
-```tsx
-// In DualView (wider, shows "TGT + SRC" label)
-<FindBar variant="dual" ... />
-
-// In JsonRawEditorModal (narrower, no extra label)
-<FindBar variant="json" ... />
-```
-
-Both variants share the same logic — only the input width (260 vs 220px) and the
-replace-row suffix label differ.

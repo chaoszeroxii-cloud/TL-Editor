@@ -2,7 +2,7 @@
 // TTS API settings panel — replaces PythonTab in TerminalPanel
 // Uses Novel TTS API (https://novelttsapi.onrender.com) with streaming support
 
-import { useState, useRef, JSX, useCallback } from 'react'
+import { useState, useRef, JSX, useCallback, useEffect } from 'react'
 import type { GlossaryLibraries } from '../../utils/glossaryLoader'
 import { filterUsedGlossariesFromRecord } from '../../utils/ttsPreprocess'
 import { getToneConfig, type ToneName, type VoiceGender } from '../../constants/tones'
@@ -28,8 +28,15 @@ interface TTSApiTabProps {
   tgtPath?: string | null
   glossaryPaths?: { atPath?: string; bfPath?: string }
   getLineTone?: (lineIndex: number) => ToneName
-  tgsGlossaries?: Record<string, Record<string, string>>
   onPlayTtsAudio?: (blob: Blob) => void
+}
+
+interface TtsProgressEvent {
+  phase: 'starting' | 'progress' | 'completed' | 'done'
+  current: number
+  total: number
+  percent: number
+  requestId: string
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -50,6 +57,7 @@ export function TTSApiTab({
   const [testBlobUrl, setTestBlobUrl] = useState<string | null>(null)
   const [ttsStatus, setTtsStatus] = useState<'idle' | 'generating' | 'ok' | 'error'>('idle')
   const [ttsMsg, setTtsMsg] = useState('')
+  const [ttsProgress, setTtsProgress] = useState<TtsProgressEvent | null>(null)
   const [tonesStatus, setTonesToStatus] = useState<'idle' | 'generating' | 'ok' | 'error'>('idle')
   const [tonesMsg, setTonesToMsg] = useState('')
   const [showGlossaries, setShowGlossaries] = useState(false)
@@ -58,19 +66,39 @@ export function TTSApiTab({
 
   const update = (patch: Partial<TtsApiConfig>): void => onConfigChange({ ...config, ...patch })
 
+  const decodeBase64ToBytes = useCallback((base64: string): Uint8Array => {
+    const binary = atob(base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return bytes
+  }, [])
+
+  const replaceTestBlobUrl = useCallback((nextUrl: string | null): void => {
+    setTestBlobUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return nextUrl
+    })
+  }, [])
+
+  useEffect(() => {
+    const handleTtsProgress = (_event: unknown, payload: unknown): void => {
+      setTtsProgress(payload as TtsProgressEvent)
+    }
+
+    window.electron.on('tts:progress', handleTtsProgress)
+    return () => window.electron.off('tts:progress', handleTtsProgress)
+  }, [])
+
   const browseOutput = async (): Promise<void> => {
     const p = await window.electron.openFolder()
     if (p) update({ outputPath: p })
   }
 
-  const testConnection = async (): Promise<void> => {
+  const testConnection = useCallback(async (): Promise<void> => {
     if (testStatus === 'testing') return
     setTestStatus('testing')
     setTestMsg('กำลังทดสอบการเชื่อมต่อ...')
-    if (testBlobUrl) {
-      URL.revokeObjectURL(testBlobUrl)
-      setTestBlobUrl(null)
-    }
+    replaceTestBlobUrl(null)
 
     try {
       const testText = 'สวัสดี ทดสอบเสียง TTS API ครับ'
@@ -103,9 +131,11 @@ export function TTSApiTab({
       // Extract data from response (now returns {requestId, data})
       const base64 = response.data
       if (!base64 || base64.length < 100) throw new Error('ไม่ได้รับไฟล์เสียงจาก API')
-      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }))
-      setTestBlobUrl(url)
+      const bytes = decodeBase64ToBytes(base64)
+      const audioBuffer = new ArrayBuffer(bytes.byteLength)
+      new Uint8Array(audioBuffer).set(bytes)
+      const url = URL.createObjectURL(new Blob([audioBuffer], { type: 'audio/mpeg' }))
+      replaceTestBlobUrl(url)
       setTestStatus('ok')
       setTestMsg('✓ เชื่อมต่อสำเร็จ — กด ▶ เพื่อฟังตัวอย่าง')
       // Auto-play
@@ -114,7 +144,14 @@ export function TTSApiTab({
       setTestStatus('error')
       setTestMsg(e instanceof Error ? e.message.slice(0, 160) : String(e))
     }
-  }
+  }, [
+    config,
+    decodeBase64ToBytes,
+    glossaries?.at_lib,
+    glossaries?.bf_lib,
+    replaceTestBlobUrl,
+    testStatus
+  ])
 
   const generateWithTones = useCallback(async (): Promise<void> => {
     if (!tgtContent?.trim() || !getLineTone) {
@@ -178,31 +215,24 @@ export function TTSApiTab({
       // Save the file if outputPath is set
       if (config.outputPath?.trim()) {
         try {
-          const reader = new FileReader()
-          reader.onload = async () => {
-            const base64 = (reader.result as string).split(',')[1]
-            const filename = tgtPath
-              ? `${tgtPath
-                  .split(/[\\/]/)
-                  .pop()
-                  ?.replace(/\.[^.]+$/, '')}-tones.mp3`
-              : `voice-tones.mp3`
+          const bytes = new Uint8Array(await audioBlob.arrayBuffer())
+          const filename = tgtPath
+            ? `${tgtPath
+                .split(/[\\/]/)
+                .pop()
+                ?.replace(/\.[^.]+$/, '')}-tones.mp3`
+            : `voice-tones.mp3`
 
-            await window.electron.saveTtsAudio(base64, filename, config.outputPath)
-            setTonesToStatus('ok')
-            setTonesToMsg(`✓ เสียงสร้างและบันทึก: ${filename}`)
-            setTimeout(() => setTonesToMsg(''), 3000)
-          }
-          reader.readAsDataURL(audioBlob)
+          await window.electron.saveAudioBytes(bytes, filename, config.outputPath)
+          setTonesToStatus('ok')
+          setTonesToMsg(`✓ เสียงสร้างและบันทึก: ${filename}`)
         } catch {
           setTonesToStatus('ok')
           setTonesToMsg('✓ เสียงสร้างเรียบร้อย (ไม่สามารถบันทึก)')
-          setTimeout(() => setTonesToMsg(''), 3000)
         }
       } else {
         setTonesToStatus('ok')
         setTonesToMsg('✓ เสียงสร้างเรียบร้อย (ยังไม่ได้บันทึก)')
-        setTimeout(() => setTonesToMsg(''), 3000)
       }
     } catch (e: unknown) {
       setTonesToStatus('error')
@@ -236,6 +266,7 @@ export function TTSApiTab({
 
     setTtsStatus('generating')
     setTtsMsg('กำลังอ่านออกเสียง...')
+    setTtsProgress(null)
 
     try {
       const apiUrl = (config.apiUrl || 'https://novelttsapi.onrender.com').trim()
@@ -278,14 +309,11 @@ export function TTSApiTab({
             ?.replace(/\.[^.]+$/, '')}.mp3`
         : `voice.mp3`
 
-      await window.electron.saveTtsAudio(base64, filename, config.outputPath)
+      await window.electron.saveAudioFile(base64, filename, config.outputPath)
 
       setTtsStatus('ok')
       setTtsMsg(`✓ บันทึกเสร็จ: ${filename}`)
-      setTimeout(() => {
-        setTtsStatus('idle')
-        setTtsMsg('')
-      }, 3000)
+      setTtsProgress(null)
     } catch (e) {
       setTtsStatus('error')
       setTtsMsg(e instanceof Error ? e.message.slice(0, 160) : String(e))
@@ -878,6 +906,54 @@ export function TTSApiTab({
           }}
         >
           {ttsMsg}
+        </div>
+      )}
+
+      {ttsStatus === 'generating' && ttsProgress && (
+        <div
+          style={{
+            padding: '7px 9px',
+            borderRadius: 5,
+            border: '1px solid rgba(62,207,160,0.3)',
+            background: 'rgba(62,207,160,0.08)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              fontSize: 10,
+              color: 'var(--hl-teal)',
+              fontFamily: 'var(--font-mono)'
+            }}
+          >
+            <span>
+              chunk {ttsProgress.current}/{ttsProgress.total}
+            </span>
+            <span>{ttsProgress.percent}%</span>
+          </div>
+          <div
+            style={{
+              width: '100%',
+              height: 7,
+              borderRadius: 999,
+              background: 'var(--bg3)',
+              overflow: 'hidden'
+            }}
+          >
+            <div
+              style={{
+                width: `${ttsProgress.percent}%`,
+                height: '100%',
+                borderRadius: 999,
+                background: 'var(--hl-teal)',
+                transition: 'width 0.2s ease'
+              }}
+            />
+          </div>
         </div>
       )}
 

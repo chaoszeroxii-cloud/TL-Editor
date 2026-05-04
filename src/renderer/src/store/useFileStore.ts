@@ -65,6 +65,7 @@ export interface FileStore {
   // ── Loaders ───────────────────────────────────────────
   loadTgt: (path: string, content: string) => void
   loadSrc: (path: string, content: string) => void
+  clearSrc: () => void
   clearAll: () => void
 
   // ── Rename ─────────────────────────────────────────────
@@ -264,6 +265,14 @@ export function useFileStore(): FileStore {
     [_setSrcPath, _setSrcContent]
   )
 
+  const clearSrc = useCallback(() => {
+    _setSrcPath(null)
+    _setSrcContent('')
+    setSrcIsDirty(false)
+    srcUndoStack.current = []
+    srcRedoStack.current = []
+  }, [_setSrcPath, _setSrcContent])
+
   const clearAll = useCallback(() => {
     _setTgtPath(null)
     _setTgtContent('')
@@ -426,6 +435,7 @@ export function useFileStore(): FileStore {
     // loaders
     loadTgt,
     loadSrc,
+    clearSrc,
     clearAll,
 
     // rename

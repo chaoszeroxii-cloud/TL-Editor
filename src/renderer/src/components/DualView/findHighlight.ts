@@ -10,7 +10,7 @@ export interface FindMatch {
   end: number
 }
 
-export type FindRange = { start: number; end: number; current: boolean }
+export type FindRange = { start: number; end: number; matchIdx: number }
 
 export type FindSeg =
   | { kind: 'text'; text: string }
@@ -31,7 +31,8 @@ export function escapeRe(s: string): string {
 export function buildRenderSegs(
   text: string,
   glossarySegs: Segment[],
-  findRanges: FindRange[]
+  findRanges: FindRange[],
+  activeMatchIdx: number
 ): FindSeg[] {
   // Fast path — no find active
   if (!findRanges.length) {
@@ -58,7 +59,8 @@ export function buildRenderSegs(
   // Per-character find state: null = no find, false = match, true = CURRENT
   const fState: (boolean | null)[] = new Array(n).fill(null)
   for (const r of findRanges) {
-    for (let i = Math.max(0, r.start); i < Math.min(n, r.end); i++) fState[i] = r.current
+    const isCurrent = r.matchIdx === activeMatchIdx
+    for (let i = Math.max(0, r.start); i < Math.min(n, r.end); i++) fState[i] = isCurrent
   }
 
   // Scan and group consecutive chars with identical (fState, gEntry)

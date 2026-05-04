@@ -19,7 +19,6 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { Tooltip } from './components/common/Tooltip'
 import { GlossaryEditor } from './components/GlossaryEditor'
 import { AudioPlayer } from './components/AudioPlayer'
-import { JsonRawEditorModal } from './components/JsonManager/JsonRawEditorModal'
 import { TerminalPanel } from './components/Terminal'
 import { AITranslatePanel } from './components/AITranslatePanel'
 import { Mp3ToMp4 } from './components/Mp3ToMp4'
@@ -28,8 +27,7 @@ import {
   useStyleProfileStore,
   getStyleProfilePath,
   useCorrectionCapture,
-  useAiContentTracker,
-  StyleProfilePanel
+  useAiContentTracker
 } from './components/StyleProfile/exports'
 
 import { useAppStore } from './store/useAppStore'
@@ -39,14 +37,15 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts' //  FIXED
 
 import { countMatches } from './utils/highlight'
 import { findTranslationPair } from './hooks/useChapterPairing'
-import { loadGlossariesFromConfig, type GlossaryLibraries } from './utils/glossaryLoader'
+import { type GlossaryLibraries } from './utils/glossaryLoader'
 
 import { useCompactTopBar } from './hooks/useCompactTopBar'
 
 import type { SetupConfig } from './components/setup/SetupWizard'
 import type { ToneName, VoiceGender } from './constants/tones'
+import type { TreeNode } from './types'
 
-import { IcoEdit, IcoFile, IcoMusic, IcoTerminal, IcoSparkle } from './components/common/icons'
+import { IcoEdit, IcoFile, IcoMusic, IcoSparkle } from './components/common/icons'
 
 import './styles/global.css'
 
@@ -59,7 +58,38 @@ export default function App(): JSX.Element {
 
   // ── Setup wizard ────────────────────────────────────────────────────────
   const [showSetup, setShowSetup] = useState(false)
-  const [ttsGlossaries, setTtsGlossaries] = useState<GlossaryLibraries>({ at_lib: {}, bf_lib: {} })
+  const ttsGlossaries = useMemo<GlossaryLibraries>(() => {
+    const at_lib: Record<string, string> = {}
+    const bf_lib: Record<string, string> = {}
+    if (!Array.isArray(gls.glossary)) return { at_lib, bf_lib }
+    for (const entry of gls.glossary) {
+      if (!entry._file || !entry.src || !entry.th) continue
+      const file = entry._file.toLowerCase()
+      if (file.includes('at_lib')) at_lib[entry.src] = entry.th
+      else if (file.includes('bf_lib')) bf_lib[entry.src] = entry.th
+    }
+    return { at_lib, bf_lib }
+  }, [gls.glossary])
+  const [pairingSourcePath, setPairingSourcePath] = useState('')
+  const [pairingSourceTree, setPairingSourceTree] = useState<TreeNode[]>([])
+
+  const loadPairingSource = useCallback(async (dirPath: string | null): Promise<void> => {
+    if (!dirPath?.trim()) {
+      setPairingSourcePath('')
+      setPairingSourceTree([])
+      return
+    }
+
+    try {
+      const tree = await window.electron.readTree(dirPath)
+      setPairingSourcePath(dirPath)
+      setPairingSourceTree(tree)
+    } catch (error) {
+      console.warn('Failed to load pairing source path:', dirPath, error)
+      setPairingSourcePath('')
+      setPairingSourceTree([])
+    }
+  }, [])
 
   // ── Auto-load from config on startup ────────────────────────────────────
   useEffect(() => {
@@ -79,16 +109,18 @@ export default function App(): JSX.Element {
         })
       }
 
-      if (cfg.ttsApiUrl !== undefined) {
-        app.setTtsConfig({
-          apiUrl: cfg.ttsApiUrl || 'https://novelttsapi.onrender.com',
-          apiKey: cfg.ttsApiKey || '',
-          voiceGender: cfg.ttsVoiceGender || 'Female',
-          voiceName: cfg.ttsVoiceName || '',
-          rate: cfg.ttsRate || '+35%',
-          outputPath: cfg.ttsOutputPath || ''
-        })
-      }
+      app.setTtsConfig({
+        apiUrl: cfg.ttsApiUrl || 'https://novelttsapi.onrender.com',
+        apiKey: cfg.ttsApiKey || '',
+        voiceGender: cfg.ttsVoiceGender || 'Female',
+        voiceName: cfg.ttsVoiceName || '',
+        rate: cfg.ttsRate || '+35%',
+        outputPath: cfg.ttsOutputPath || ''
+      })
+
+      await loadPairingSource(
+        cfg.pairingSourcePath || (cfg.folderPath ? `${cfg.folderPath}/แปล` : null)
+      )
 
       if (cfg.folderPath) {
         const [tree, glossaryEntries] = await Promise.all([
@@ -162,6 +194,14 @@ export default function App(): JSX.Element {
     await loadWorkspaceData(dir, true) // เรียกใช้ตัวกลาง + สั่ง Reset
   }, [loadWorkspaceData])
 
+  const handleSelectPairingSource = useCallback(async () => {
+    const dir = await window.electron.openFolder()
+    if (!dir) return
+
+    await loadPairingSource(dir)
+    window.electron.saveConfigPatch({ pairingSourcePath: dir }).catch(() => {})
+  }, [loadPairingSource])
+
   // ── Select file ─────────────────────────────────────────────────────────
   const handleSelectFile = useCallback(
     async (path: string) => {
@@ -169,7 +209,8 @@ export default function App(): JSX.Element {
       if (files.nextSlot === 'tgt') {
         files.loadTgt(path, content)
         files.setNextSlot('src')
-        const paired = findTranslationPair(app.treeRef.current, path)
+        const compareTree = pairingSourceTree.length > 0 ? pairingSourceTree : app.treeRef.current
+        const paired = findTranslationPair(compareTree, path)
         if (paired) {
           const pairedContent = await window.electron.readFile(paired)
           files.loadSrc(paired, pairedContent)
@@ -180,7 +221,7 @@ export default function App(): JSX.Element {
         files.setNextSlot('tgt')
       }
     },
-    [files, app.treeRef]
+    [files, app.treeRef, pairingSourceTree]
   )
 
   // ── New file ─────────────────────────────────────────────────────────────
@@ -188,15 +229,27 @@ export default function App(): JSX.Element {
     const saved = await window.electron.saveFile('translation.txt', '')
     if (!saved) return
     files.loadTgt(saved, '')
+    files.clearSrc()
     files.setNextSlot('src')
-  }, [files])
+    if (app.rootDir) {
+      const newTree = await window.electron.readTree(app.rootDir, { force: true })
+      app.setTree(newTree)
+      const compareTree = pairingSourceTree.length > 0 ? pairingSourceTree : newTree
+      const paired = findTranslationPair(compareTree, saved)
+      if (paired) {
+        const pairedContent = await window.electron.readFile(paired)
+        files.loadSrc(paired, pairedContent)
+        files.setNextSlot('tgt')
+      }
+    }
+  }, [files, app, pairingSourceTree])
 
   // ── File moved ───────────────────────────────────────────────────────────
   const handleFileMoved = useCallback(
     async (oldPath: string, newPath: string) => {
       await window.electron.moveFile(oldPath, newPath)
       if (app.rootDir) {
-        const newTree = await window.electron.readTree(app.rootDir)
+        const newTree = await window.electron.readTree(app.rootDir, { force: true })
         app.setTree(newTree)
       }
       if (files.tgtPath === oldPath) files.loadTgt(newPath, files.tgtContent)
@@ -226,6 +279,34 @@ export default function App(): JSX.Element {
     setTree(newTree)
   }, [rootDir, setTree])
 
+  const handleToggleAiPanel = useCallback(() => {
+    if (app.styleProfileOpen) {
+      app.setStyleProfileOpen(false)
+      app.setAiPanelOpen(true)
+      return
+    }
+    app.toggleAiPanel()
+  }, [app])
+
+  const handleToggleStyleProfilePanel = useCallback(() => {
+    if (app.styleProfileOpen) {
+      app.setStyleProfileOpen(false)
+      return
+    }
+    app.setAiPanelOpen(false)
+    app.setStyleProfileOpen(true)
+  }, [app])
+
+  const handleSelectAiWorkTab = useCallback(() => {
+    app.setStyleProfileOpen(false)
+    app.setAiPanelOpen(true)
+  }, [app])
+
+  const handleSelectAiProfileTab = useCallback(() => {
+    app.setAiPanelOpen(false)
+    app.setStyleProfileOpen(true)
+  }, [app])
+
   // ── Keyboard shortcuts — delegated to hook ✅ ────────────────────────────
   useKeyboardShortcuts({
     handleSave: files.handleSave,
@@ -238,9 +319,7 @@ export default function App(): JSX.Element {
     toggleSidebar: app.toggleSidebar,
     toggleGlossary: app.toggleGlossary,
     handleRefresh,
-    toggleJsonManager: app.toggleJsonManager,
-    toggleStyleProfile: app.toggleStyleProfile,
-    sourceFilePathsCount: Object.keys(gls.sourceFilePaths).length
+    toggleStyleProfile: handleToggleStyleProfilePanel
   })
 
   // ── Glossary: add to from context menu ──────────────────────────────────
@@ -332,6 +411,7 @@ export default function App(): JSX.Element {
 
   const handleSendToParaphrase = useCallback(
     (text: string) => {
+      app.setStyleProfileOpen(false)
       app.setAiPanelOpen(true)
       setParaphraseInput(text)
     },
@@ -339,11 +419,14 @@ export default function App(): JSX.Element {
   )
 
   const handleSaveTtsAudio = useCallback(
-    async (base64: string, defaultName: string) => {
+    async (audio: string | Uint8Array, defaultName: string) => {
       const outputDir = app.ttsConfig.outputPath || undefined
 
       // Call IPC to save file (shows dialog if no outputDir)
-      const savedPath = await window.electron.saveAudioFile(base64, defaultName, outputDir)
+      const savedPath =
+        typeof audio === 'string'
+          ? await window.electron.saveAudioFile(audio, defaultName, outputDir)
+          : await window.electron.saveAudioBytes(audio, defaultName, outputDir)
 
       if (savedPath && !outputDir) {
         // First time saving — remember the directory in config
@@ -354,14 +437,6 @@ export default function App(): JSX.Element {
     },
     [app]
   )
-
-  useEffect(() => {
-    ;(async () => {
-      const cfg = await window.electron.getEnvConfig()
-      const { libs } = await loadGlossariesFromConfig(cfg.jsonPaths || [], files.tgtPath)
-      setTtsGlossaries(libs)
-    })()
-  }, [files.tgtPath])
 
   // Treat the tgt file content as AI baseline when a file is loaded.
   // This lets corrections be captured even when the user manually opens an
@@ -378,7 +453,10 @@ export default function App(): JSX.Element {
   const [matchCount, setMatchCount] = useState(0)
   useEffect(() => {
     const content = files.srcContent || files.tgtContent
-    startTransition(() => setMatchCount(countMatches(content, gls.glossary)))
+    const timeout = window.setTimeout(() => {
+      startTransition(() => setMatchCount(countMatches(content, gls.glossary)))
+    }, 120)
+    return () => window.clearTimeout(timeout)
   }, [files.srcContent, files.tgtContent, gls.glossary])
 
   const rowCount = useMemo(
@@ -387,7 +465,6 @@ export default function App(): JSX.Element {
   )
 
   const hasAnyFile = files.tgtPath !== null
-  const jsonFileCount = Object.keys(gls.sourceFilePaths).length
   const shortcutHint = hasAnyFile
     ? [
         'Ctrl+S save',
@@ -397,7 +474,6 @@ export default function App(): JSX.Element {
         'Ctrl+B sidebar',
         'Ctrl+G glossary',
         'Ctrl+R refresh',
-        jsonFileCount > 0 ? 'Ctrl+J JSON' : '',
         'Ctrl+⇧C copy TGT',
         files.srcPath ? 'Ctrl+Alt+C copy SRC' : ''
       ]
@@ -435,19 +511,17 @@ export default function App(): JSX.Element {
           glossaryLen={gls.glossary.length}
           sidebarVisible={app.sidebarVisible}
           glossaryVisible={app.glossaryVisible}
-          terminalOpen={app.terminalOpen}
+          ttsOpen={app.terminalOpen}
           mp3ConverterOpen={app.mp3ConverterOpen}
-          aiPanelOpen={app.aiPanelOpen}
-          styleProfileOpen={app.styleProfileOpen}
-          onToggleStyleProfile={app.toggleStyleProfile}
-          jsonFileCount={jsonFileCount}
+          aiPanelOpen={app.aiPanelOpen || app.styleProfileOpen}
+          pairingSourcePath={pairingSourcePath}
           saving={files.saving}
           onToggleSidebar={app.toggleSidebar}
           onToggleGlossary={app.toggleGlossary}
-          onToggleTerminal={app.toggleTerminal}
+          onToggleTts={app.toggleTerminal}
           onToggleMp3Converter={app.toggleMp3Converter}
-          onToggleAi={app.toggleAiPanel}
-          onOpenJsonManager={() => app.setJsonManagerOpen((v) => !v)}
+          onToggleAi={handleToggleAiPanel}
+          onSelectPairingSource={handleSelectPairingSource}
           onRefresh={handleRefresh}
         />
       </div>
@@ -541,7 +615,7 @@ export default function App(): JSX.Element {
           </ErrorBoundary>
         )}
 
-        {hasAnyFile && app.aiPanelOpen && (
+        {hasAnyFile && (app.aiPanelOpen || app.styleProfileOpen) && (
           <ErrorBoundary name="AITranslatePanel">
             <AITranslatePanel
               srcContent={files.srcContent}
@@ -555,41 +629,33 @@ export default function App(): JSX.Element {
               onPushParaphrase={handlePushParaphrase}
               paraphraseInput={paraphraseInput}
               onParaphraseInputConsumed={() => setParaphraseInput(null)}
-            />
-          </ErrorBoundary>
-        )}
-
-        {hasAnyFile && app.styleProfileOpen && (
-          <ErrorBoundary name="StyleProfilePanel">
-            <StyleProfilePanel
-              profile={styleProfile.profile}
-              isAnalyzing={styleProfile.isAnalyzing}
-              analyzeError={styleProfile.analyzeError}
-              apiKey={app.aiConfig.apiKey}
-              onAnalyze={() => styleProfile.analyze(app.aiConfig.apiKey)}
-              onClearCorrections={styleProfile.clearCorrections}
-              onResetProfile={styleProfile.resetProfile}
-              onClose={app.toggleStyleProfile}
+              profileActive={app.styleProfileOpen}
+              onSelectWorkTab={handleSelectAiWorkTab}
+              onSelectProfileTab={handleSelectAiProfileTab}
+              profilePanel={{
+                profile: styleProfile.profile,
+                isAnalyzing: styleProfile.isAnalyzing,
+                analyzeError: styleProfile.analyzeError,
+                apiKey: app.aiConfig.apiKey,
+                onAnalyze: (model: string) => styleProfile.analyze(app.aiConfig.apiKey, model),
+                onClearCorrections: styleProfile.clearCorrections,
+                onResetProfile: styleProfile.resetProfile
+              }}
             />
           </ErrorBoundary>
         )}
       </div>
 
-      {/* Terminal */}
+      {/* TTS */}
       {app.terminalOpen && (
-        <ErrorBoundary name="TerminalPanel">
+        <ErrorBoundary name="TTSPanel">
           <TerminalPanel
-            cwd={app.rootDir}
             onClose={() => app.setTerminalOpen(false)}
             ttsConfig={app.ttsConfig}
             onTtsConfigChange={app.handleTtsConfigChange}
             tgtPath={files.tgtPath}
             tgtContent={files.tgtContent}
             getLineTone={(idx) => files.getLineTone(idx) as ToneName}
-            tgsGlossaries={{
-              before: Object.fromEntries(gls.glossary.map((e) => [e.src, e.th])),
-              after: Object.fromEntries(gls.glossary.map((e) => [e.src, e.th]))
-            }}
             onPlayTtsAudio={handlePlayTtsAudio}
           />
         </ErrorBoundary>
@@ -625,12 +691,6 @@ export default function App(): JSX.Element {
       <Tooltip />
 
       {/* Modals */}
-      {app.jsonManagerOpen && jsonFileCount > 0 && (
-        <JsonRawEditorModal
-          files={gls.sourceFilePaths}
-          onClose={() => app.setJsonManagerOpen(false)}
-        />
-      )}
       {gls.openGlossaryFile && (
         <GlossaryEditor
           file={gls.openGlossaryFile}
@@ -690,19 +750,17 @@ const TopBarRight = memo(function TopBarRight({
   glossaryLen,
   sidebarVisible,
   glossaryVisible,
-  terminalOpen,
+  ttsOpen,
   mp3ConverterOpen,
   aiPanelOpen,
-  styleProfileOpen,
-  jsonFileCount,
+  pairingSourcePath,
   saving,
   onToggleSidebar,
   onToggleGlossary,
-  onToggleTerminal,
+  onToggleTts,
   onToggleMp3Converter,
   onToggleAi,
-  onToggleStyleProfile,
-  onOpenJsonManager,
+  onSelectPairingSource,
   onRefresh
 }: {
   rootDir: string | null
@@ -711,19 +769,17 @@ const TopBarRight = memo(function TopBarRight({
   glossaryLen: number
   sidebarVisible: boolean
   glossaryVisible: boolean
-  terminalOpen: boolean
+  ttsOpen: boolean
   mp3ConverterOpen: boolean
   aiPanelOpen: boolean
-  styleProfileOpen: boolean
-  jsonFileCount: number
+  pairingSourcePath: string
   saving: boolean
   onToggleSidebar: () => void
   onToggleGlossary: () => void
-  onToggleTerminal: () => void
+  onToggleTts: () => void
   onToggleAi: () => void
   onToggleMp3Converter: () => void
-  onToggleStyleProfile: () => void
-  onOpenJsonManager: () => void
+  onSelectPairingSource: () => void
   onRefresh: () => void
 }) {
   const compact = useCompactTopBar()
@@ -754,11 +810,6 @@ const TopBarRight = memo(function TopBarRight({
           click 2nd file = ต้นฉบับ
         </span>
       )}
-      {glossaryLen > 0 && (
-        <span style={{ ...s.badge, color: 'var(--accent)', background: 'var(--accent-dim)' }}>
-          ● glossary ({glossaryLen})
-        </span>
-      )}
 
       <ActionButton
         active={sidebarVisible}
@@ -772,50 +823,28 @@ const TopBarRight = memo(function TopBarRight({
       <ActionButton
         active={glossaryVisible}
         icon="◧"
-        label=" Glossary"
+        label={` Glossary ${glossaryLen}`}
         title="Glossary (Ctrl+G)"
         onClick={onToggleGlossary}
         compact={compact}
       />
-
-      {jsonFileCount > 0 && (
-        <button
-          style={{
-            ...s.badge,
-            cursor: 'pointer',
-            border: '1px solid var(--hl-gold-border)',
-            color: 'var(--hl-gold)',
-            background: 'var(--hl-gold-bg)'
-          }}
-          onClick={onOpenJsonManager}
-          title="JSON Manager (Ctrl+J)"
-        >
-          {'{ }'} {jsonFileCount} JSON
-        </button>
-      )}
       {rootDir && (
-        <button
-          onClick={onRefresh}
+        <ActionButton
+          active={false}
+          icon="↺"
+          label=" refresh"
           title="Refresh (Ctrl+R)"
-          style={{
-            ...s.badge,
-            cursor: 'pointer',
-            border: '1px solid var(--border)',
-            background: 'none',
-            color: 'var(--text2)'
-          }}
-        >
-          ↺ refresh
-        </button>
+          onClick={onRefresh}
+          compact={compact}
+        />
       )}
-      <span style={s.badge}>UTF-8</span>
 
       <ActionButton
-        active={terminalOpen}
-        icon={<IcoTerminal size={11} stroke="currentColor" />}
-        label=" Terminal"
-        title="Terminal (Ctrl+`)"
-        onClick={onToggleTerminal}
+        active={ttsOpen}
+        icon={<IcoMusic size={11} stroke="currentColor" />}
+        label=" TTS"
+        title="TTS (Ctrl+`)"
+        onClick={onToggleTts}
         compact={compact}
       />
 
@@ -828,6 +857,32 @@ const TopBarRight = memo(function TopBarRight({
         compact={compact}
       />
 
+      <button
+        onClick={onSelectPairingSource}
+        title={
+          pairingSourcePath
+            ? `Source compare path\n${pairingSourcePath}`
+            : 'Select source compare path for chapter-number auto pairing'
+        }
+        style={{
+          ...s.badge,
+          cursor: 'pointer',
+          border: '1px solid var(--border)',
+          background: pairingSourcePath ? 'rgba(62,207,160,0.08)' : 'none',
+          color: pairingSourcePath ? 'var(--hl-teal)' : 'var(--text2)',
+          maxWidth: compact ? 34 : 180,
+          overflow: 'hidden',
+          whiteSpace: 'nowrap',
+          textOverflow: 'ellipsis'
+        }}
+      >
+        ⇄
+        {!compact &&
+          (pairingSourcePath
+            ? ` SrcPair ${pairingSourcePath.split(/[\\/]/).pop()}`
+            : ' Set SrcPair')}
+      </button>
+
       {hasAnyFile && (
         <ActionButton
           active={aiPanelOpen}
@@ -835,16 +890,6 @@ const TopBarRight = memo(function TopBarRight({
           label=" AI แปล"
           title="AI Translate"
           onClick={onToggleAi}
-          compact={compact}
-        />
-      )}
-      {hasAnyFile && (
-        <ActionButton
-          active={styleProfileOpen}
-          icon="✦"
-          label=" Profile"
-          title="Style Profile (Ctrl+Shift+P)"
-          onClick={onToggleStyleProfile}
           compact={compact}
         />
       )}

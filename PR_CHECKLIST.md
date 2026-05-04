@@ -6,36 +6,9 @@
 
 ## 📋 PHASE 1: BLOCKING ISSUES (Critical)
 
-Must be fixed before release. Estimated effort: **3-4 hours**
+Must be fixed before release. Estimated effort: **2-3 hours**
 
-### [ ] BUG-001: Fix TypeScript Compilation Error (JsonRawEditorModal.tsx:869)
-
-**File:** `src/renderer/src/components/JsonManager/JsonRawEditorModal.tsx`
-
-**Change:**
-
-```diff
-  const newEndPos =
-    newStartPos +
-    newLines
--     .slice(endLineIdx + 1, endLineIdx + 1 + duplicated.length)
--     .join('\n').length
-+     .slice(endLineIdx + 1, endLineIdx + 1 + duplicated.length)
-+     .join('\n').length
-```
-
-**Verification:**
-
-- [ ] TypeScript compilation passes (`npm run typecheck`)
-- [ ] Build succeeds (`npm run build`)
-- [ ] No new errors in IDE
-- [ ] Prettier formatting accepted
-
-**Notes:** Remove line break before `.join()` to fix ambiguous AST parsing.
-
----
-
-### [ ] BUG-002: Fix TypeScript Configuration Deprecation Warning
+### [ ] BUG-001: Fix TypeScript Configuration Deprecation Warning
 
 **File:** `tsconfig.web.json`
 
@@ -907,8 +880,7 @@ This PR implements fixes identified in the code review (CODE_REVIEW.md).
 
 ### Phase 1: Blocking Issues
 
-- [x] BUG-001: Fix JsonRawEditorModal compilation error
-- [x] BUG-002: Fix TypeScript deprecation warning
+- [x] BUG-001: Fix TypeScript deprecation warning
 - [x] SEC-001: Move API keys to OS Keychain
 - [x] SEC-002: Add command whitelist for shell execution
 - [x] PERF-001: Add React Error Boundaries

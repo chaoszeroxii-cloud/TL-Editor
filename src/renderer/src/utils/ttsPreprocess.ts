@@ -113,11 +113,52 @@ export function filterUsedGlossaries(
   return result
 }
 
-// ── Main export ───────────────────────────────────────────────────────────────
+// ── Main exports ──────────────────────────────────────────────────────────────
+
+/**
+ * Replaces terms from glossary records (bf_lib + at_lib) in text.
+ * Records are pre-filtered to only contain entries found in text (via filterUsedGlossariesFromRecord).
+ * Safe for use with any text — returns original text if records are empty.
+ */
+export function preprocessForTtsFromRecords(
+  text: string,
+  bfLib: Record<string, string>,
+  atLib: Record<string, string>
+): string {
+  if (!text.trim()) return text
+
+  // Merge both records (bfLib applied first, then atLib)
+  const merged = { ...bfLib, ...atLib }
+  if (!Object.keys(merged).length) return text
+
+  // Sort by length (longest first) to avoid partial replacements
+  const keys = Object.keys(merged).sort((a, b) => b.length - a.length)
+
+  // Build alternation regex
+  const pattern = keys
+    .map((k) => {
+      const esc = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      // Word boundary only for latin strings
+      return /[A-Za-z]/.test(k) ? `\\b${esc}\\b` : esc
+    })
+    .join('|')
+
+  let re: RegExp
+  try {
+    re = new RegExp(`(${pattern})`, 'g')
+  } catch {
+    return text // regex compile failed → return original
+  }
+
+  return text.replace(re, (matched) => {
+    return merged[matched] ?? merged[matched.toLowerCase()] ?? matched
+  })
+}
 
 /**
  * Replaces glossary terms in `text` with their phonetic notes or Thai translations.
  * Safe for use with any text — returns original text if glossary is empty.
+ * ⚠️ Uses ALL glossary entries (for backward compatibility)
  */
 export function preprocessForTts(text: string, glossary: GlossaryEntry[]): string {
   if (!glossary.length || !text.trim()) return text

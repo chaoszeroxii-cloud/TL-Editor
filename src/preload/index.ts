@@ -1,21 +1,11 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
-const eventChannels = new Set(['run-command:stdout', 'run-command:stderr'])
+const eventChannels = new Set(['mp3-to-mp4:progress', 'tts:progress'])
 
 contextBridge.exposeInMainWorld('electron', {
   getEnvConfig: () => ipcRenderer.invoke('get-env-config'),
-  saveConfig: (cfg: unknown) => ipcRenderer.invoke('save-config', cfg),
   saveConfigPatch: (patch: unknown) => ipcRenderer.invoke('save-config-patch', patch),
-  detectPython: () => ipcRenderer.invoke('detect-python'),
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
-  on: (channel: string, cb: (...args: unknown[]) => void) => {
-    if (!eventChannels.has(channel)) throw new Error(`Unsupported event channel: ${channel}`)
-    ipcRenderer.on(channel, cb)
-  },
-  off: (channel: string, cb: (...args: unknown[]) => void) => {
-    if (!eventChannels.has(channel)) return
-    ipcRenderer.removeListener(channel, cb)
-  },
   readTree: (dirPath: string, options?: { force?: boolean }) =>
     ipcRenderer.invoke('fs:readTree', dirPath, options),
   readFile: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath),
@@ -33,11 +23,8 @@ contextBridge.exposeInMainWorld('electron', {
   // Returns saved file path, or null if cancelled.
   saveAudioFile: (base64: string, defaultName: string, outputDir?: string) =>
     ipcRenderer.invoke('fs:saveAudioFile', base64, defaultName, outputDir),
-  runCommand: (cmd: string, cwd?: string) => ipcRenderer.invoke('run-command', cmd, cwd),
-  killProcess: () => ipcRenderer.invoke('kill-process'),
-  installPythonPackages: (exePath: string, packages: string[]) =>
-    ipcRenderer.invoke('install-python-packages', exePath, packages),
-  runPython: (code: string, cwd?: string) => ipcRenderer.invoke('run-python', code, cwd),
+  saveAudioBytes: (bytes: Uint8Array, defaultName: string, outputDir?: string) =>
+    ipcRenderer.invoke('fs:saveAudioBytes', Array.from(bytes), defaultName, outputDir),
   readGlossary: (dirPath: string) => ipcRenderer.invoke('fs:readGlossary', dirPath),
   getPairedPath: (srcPath: string) => ipcRenderer.invoke('fs:getPairedPath', srcPath),
   openrouterChat: (opts: Record<string, unknown>) => ipcRenderer.invoke('openrouter-chat', opts),
@@ -45,6 +32,14 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.invoke('open-file', filters),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   approvePaths: (paths: string[]) => ipcRenderer.invoke('approve-paths', paths),
+  on: (channel: string, cb: (...args: unknown[]) => void) => {
+    if (!eventChannels.has(channel)) throw new Error(`Unsupported event channel: ${channel}`)
+    ipcRenderer.on(channel, cb)
+  },
+  off: (channel: string, cb: (...args: unknown[]) => void) => {
+    if (!eventChannels.has(channel)) return
+    ipcRenderer.removeListener(channel, cb)
+  },
   // Updated: accepts options object for Novel TTS API instead of voice string
   tts: (
     text: string,
@@ -87,7 +82,9 @@ contextBridge.exposeInMainWorld('electron', {
       imagePath: string
       audioPaths: string[]
       outputDir?: string
+      filenamePrefix?: string
       ffmpegPath?: string
     }
-  ) => ipcRenderer.invoke('convert-mp3-to-mp4', opts)
+  ) => ipcRenderer.invoke('convert-mp3-to-mp4', opts),
+  cancelMp3ToMp4: () => ipcRenderer.invoke('cancel-mp3-to-mp4')
 })

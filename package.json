@@ -37,6 +37,12 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
+    "extraResources": [
+      {
+        "from": "resources/tools",
+        "to": "tools"
+      }
+    ],
     "files": [
       "out/**/*"
     ]

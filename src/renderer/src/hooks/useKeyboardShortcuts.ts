@@ -11,9 +11,7 @@ interface UseKeyboardShortcutsProps {
   toggleSidebar: () => void
   toggleGlossary: () => void
   handleRefresh: () => void
-  toggleJsonManager: (hasFiles: boolean) => void
   toggleStyleProfile: () => void
-  sourceFilePathsCount: number
 }
 
 export function useKeyboardShortcuts({
@@ -27,9 +25,7 @@ export function useKeyboardShortcuts({
   toggleSidebar,
   toggleGlossary,
   handleRefresh,
-  toggleJsonManager,
-  toggleStyleProfile,
-  sourceFilePathsCount
+  toggleStyleProfile
 }: UseKeyboardShortcutsProps): void {
   useEffect(() => {
     const isEditing = (): boolean => {
@@ -87,13 +83,6 @@ export function useKeyboardShortcuts({
         }
         return
       }
-      if (code === 'KeyJ') {
-        if (!isEditing()) {
-          e.preventDefault()
-          toggleJsonManager(sourceFilePathsCount > 0)
-        }
-        return
-      }
       if (code === 'KeyC' && e.shiftKey) {
         if (!isEditing()) {
           e.preventDefault()
@@ -135,8 +124,6 @@ export function useKeyboardShortcuts({
     toggleSidebar,
     toggleGlossary,
     handleRefresh,
-    toggleJsonManager,
-    sourceFilePathsCount,
     toggleStyleProfile
   ])
 }

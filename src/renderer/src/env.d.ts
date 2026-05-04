@@ -8,7 +8,7 @@
 //     inferred as `unknown` and rejected by downstream APIs that expect `string`.
 //   • `readTree` return typed as `TreeNode[]` (matches IPC implementation).
 //   • `readGlossary` return typed as `GlossaryEntry[]`.
-//   • `saveConfig` / `saveConfigPatch` accept typed patch objects.
+//   • `saveConfigPatch` accepts typed patch objects.
 
 /// <reference types="vite/client" />
 
@@ -36,9 +36,6 @@ interface _GlossaryEntry {
 interface _EnvConfig {
   folderPath: string | null
   jsonPaths: string[]
-  pythonExe: string | null
-  pythonScript: string | null
-  pythonCwd: string | null
   hasConfig: boolean
   aiApiKey: string
   aiPromptPath: string
@@ -49,14 +46,15 @@ interface _EnvConfig {
   ttsVoiceName: string
   ttsRate: string
   ttsOutputPath: string
+  mp4OutputPath: string
+  mp4ImagePath: string
+  mp4FilenamePrefix: string
+  pairingSourcePath: string
 }
 
 interface _SaveConfigPayload {
   folderPath?: string | null
   jsonPaths?: string[]
-  pythonExe?: string
-  pythonScript?: string
-  pythonCwd?: string
   aiApiKey?: string
   aiPromptPath?: string
   aiGlossaryPath?: string
@@ -66,6 +64,10 @@ interface _SaveConfigPayload {
   ttsVoiceName?: string
   ttsRate?: string
   ttsOutputPath?: string
+  mp4OutputPath?: string
+  mp4ImagePath?: string
+  mp4FilenamePrefix?: string
+  pairingSourcePath?: string
 }
 
 // ── TTS options (shared by tts + ttsStream) ──────────────────────────────────
@@ -85,7 +87,6 @@ interface ElectronAPI {
   // ── Config ──────────────────────────────────────────────────────────────
   /** Returns the full app config; fields are all concrete typed strings/arrays. */
   getEnvConfig: () => Promise<_EnvConfig>
-  saveConfig: (cfg: _SaveConfigPayload) => Promise<void>
   saveConfigPatch: (patch: _SaveConfigPayload) => Promise<void>
 
   // ── File operations ──────────────────────────────────────────────────────
@@ -99,30 +100,21 @@ interface ElectronAPI {
   readAudioBuffer: (filePath: string) => Promise<string>
   saveFile: (defaultName: string, content: string) => Promise<string | null>
   saveAudioFile: (base64: string, defaultName: string, outputDir?: string) => Promise<string | null>
+  saveAudioBytes: (
+    bytes: Uint8Array,
+    defaultName: string,
+    outputDir?: string
+  ) => Promise<string | null>
   readGlossary: (dirPath: string) => Promise<_GlossaryEntry[]>
   getPairedPath: (srcPath: string) => Promise<{ path: string; exists: boolean }>
-
-  // ── Process / shell ──────────────────────────────────────────────────────
-  runCommand: (
-    cmd: string,
-    cwd?: string
-  ) => Promise<{ stdout: string; stderr: string; exitCode: number }>
-  killProcess: () => Promise<void>
-  runPython: (
-    code: string,
-    cwd?: string
-  ) => Promise<{ stdout: string; stderr: string; exitCode: number }>
-  installPythonPackages: (
-    exePath: string,
-    packages: string[]
-  ) => Promise<{ stdout: string; stderr: string; exitCode: number }>
-  detectPython: () => Promise<{ label: string; path: string }[]>
 
   // ── File dialogs ─────────────────────────────────────────────────────────
   openFile: (filters?: { name: string; extensions: string[] }[]) => Promise<string | null>
   openFolder: () => Promise<string | null>
   getPathForFile: (file: File) => string
   approvePaths: (paths: string[]) => Promise<void>
+  on: (channel: string, cb: (...args: unknown[]) => void) => void
+  off: (channel: string, cb: (...args: unknown[]) => void) => void
 
   // ── Translation / AI APIs ────────────────────────────────────────────────
   translate: (text: string) => Promise<unknown>
@@ -139,10 +131,6 @@ interface ElectronAPI {
   ttsStream: (text: string, options?: _TtsOptions) => Promise<{ requestId: string; data: string }>
   saveTtsAudio: (base64: string, filename: string, outputDir: string) => Promise<string>
 
-  // ── Event listeners ──────────────────────────────────────────────────────
-  on: (channel: string, cb: (...args: unknown[]) => void) => void
-  off: (channel: string, cb: (...args: unknown[]) => void) => void
-
   // ── Network request management ───────────────────────────────────────────
   cancelNetworkRequest: (requestId: string) => Promise<boolean>
 
@@ -151,8 +139,10 @@ interface ElectronAPI {
     imagePath: string
     audioPaths: string[]
     outputDir?: string
+    filenamePrefix?: string
     ffmpegPath?: string
   }) => Promise<{ canceled?: boolean; outputs: string[]; errors: string[] }>
+  cancelMp3ToMp4: () => Promise<boolean>
 }
 
 declare global {

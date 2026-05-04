@@ -34,13 +34,11 @@ export function findTranslationPair(tree: TreeNode[], sourcePath: string): strin
   const chNum = extractChapterNum(sourceName)
   if (!chNum) return null
   const files = flattenFiles(tree)
-  return (
-    files.find(
-      (f) =>
-        f.path !== sourcePath &&
-        f.name.endsWith('.txt') &&
-        f.folderName.includes('แปล') &&
-        extractChapterNum(f.name) === chNum
-    )?.path ?? null
+  const candidates = files.filter(
+    (f) => f.path !== sourcePath && f.name.endsWith('.txt') && extractChapterNum(f.name) === chNum
   )
+  if (candidates.length === 0) return null
+
+  const nonTranslatedFolderMatch = candidates.find((f) => !f.folderName.includes('แปล'))
+  return nonTranslatedFolderMatch?.path ?? candidates[0].path
 }

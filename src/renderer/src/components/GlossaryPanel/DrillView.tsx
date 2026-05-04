@@ -183,59 +183,67 @@ export const DrillView = memo(function DrillView({
           const hasChildren = sec.children.size > 0
           return (
             <div key={name} style={{ borderBottom: '1px solid var(--border)' }}>
-              <button
-                onClick={() => onDrill([...drillPath, name])}
+              <div
                 style={{
-                  width: '100%',
                   display: 'flex',
                   alignItems: 'center',
-                  padding: '9px 12px',
                   minHeight: 40,
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  textAlign: 'left' as const,
                   transition: 'background 0.08s'
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg2)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--bg2)')}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'none')}
               >
-                <span
+                <button
+                  onClick={() => onDrill([...drillPath, name])}
                   style={{
-                    fontSize: 12,
-                    color: 'var(--text0)',
-                    fontWeight: 600,
-                    fontFamily: 'var(--font-mono)',
                     flex: 1,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '9px 12px',
+                    minHeight: 40,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textAlign: 'left' as const
                   }}
                 >
-                  {name}
-                </span>
-                <span
-                  style={{
-                    fontSize: 10,
-                    color: 'var(--accent)',
-                    background: 'var(--accent-dim)',
-                    padding: '2px 7px',
-                    borderRadius: 99,
-                    flexShrink: 0,
-                    fontFamily: 'var(--font-mono)',
-                    marginRight: hasChildren ? 6 : 0
-                  }}
-                >
-                  {total}
-                </span>
-                {hasChildren && (
                   <span
-                    style={{ color: 'var(--text2)', fontSize: 14, flexShrink: 0, lineHeight: 1 }}
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--text0)',
+                      fontWeight: 600,
+                      fontFamily: 'var(--font-mono)',
+                      flex: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}
                   >
-                    ›
+                    {name}
                   </span>
-                )}
-              </button>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: 'var(--accent)',
+                      background: 'var(--accent-dim)',
+                      padding: '2px 7px',
+                      borderRadius: 99,
+                      flexShrink: 0,
+                      fontFamily: 'var(--font-mono)',
+                      marginRight: hasChildren ? 6 : 0
+                    }}
+                  >
+                    {total}
+                  </span>
+                  {hasChildren && (
+                    <span
+                      style={{ color: 'var(--text2)', fontSize: 14, flexShrink: 0, lineHeight: 1 }}
+                    >
+                      ›
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
           )
         })}

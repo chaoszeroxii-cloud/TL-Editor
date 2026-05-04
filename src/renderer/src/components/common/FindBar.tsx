@@ -1,6 +1,6 @@
 /**
  * common/FindBar.tsx
- * Shared find & replace bar used by DualView and JsonManager.
+ * Shared find & replace bar used by editor surfaces such as DualView.
  * Has two visual variants controlled by `variant` prop:
  *   'dual'  — wider input (260px), shows "TGT + SRC" label on replace row
  *   'json'  — narrower input (220px), no extra label

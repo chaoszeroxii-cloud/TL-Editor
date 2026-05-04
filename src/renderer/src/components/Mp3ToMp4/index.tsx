@@ -15,15 +15,72 @@ interface Mp3ToMp4Props {
   onClose?: () => void
 }
 
+interface Mp4ProgressEvent {
+  phase: 'starting' | 'progress' | 'completed' | 'error' | 'canceled' | 'done'
+  current: number
+  total: number
+  percent: number
+  filePercent?: number
+  elapsedSeconds?: number
+  totalSeconds?: number
+  fileName: string
+  outputPath?: string
+  error?: string
+}
+
 export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
   const [imagePath, setImagePath] = useState<string>('')
   const [audioPaths, setAudioPaths] = useState<string[]>([])
   const [outputDir, setOutputDir] = useState<string>('')
+  const [filenamePrefix, setFilenamePrefix] = useState<string>('')
   const [converting, setConverting] = useState(false)
   const [results, setResults] = useState<{ outputs: string[]; errors: string[] } | null>(null)
   const [isDraggingOverImage, setIsDraggingOverImage] = useState(false)
   const [isDraggingOverAudio, setIsDraggingOverAudio] = useState(false)
   const [imagePreviewSrc, setImagePreviewSrc] = useState('')
+  const [configReady, setConfigReady] = useState(false)
+  const [progress, setProgress] = useState<Mp4ProgressEvent | null>(null)
+  const exampleName = `${filenamePrefix.trim() ? `${filenamePrefix.trim()} ` : ''}บทที่ 20.mp4`
+  const formatTime = (seconds?: number): string => {
+    if (!seconds || seconds < 0) return '00:00'
+    const total = Math.floor(seconds)
+    const mins = Math.floor(total / 60)
+    const secs = total % 60
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+  }
+
+  useEffect(() => {
+    let canceled = false
+
+    window.electron
+      .getEnvConfig()
+      .then((cfg) => {
+        if (!canceled) {
+          setOutputDir(cfg.mp4OutputPath || '')
+          setImagePath(cfg.mp4ImagePath || '')
+          setFilenamePrefix(cfg.mp4FilenamePrefix || '')
+          setConfigReady(true)
+        }
+      })
+      .catch(() => {
+        if (!canceled) setConfigReady(true)
+      })
+
+    return () => {
+      canceled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!configReady) return
+    window.electron
+      .saveConfigPatch({
+        mp4OutputPath: outputDir,
+        mp4ImagePath: imagePath,
+        mp4FilenamePrefix: filenamePrefix
+      })
+      .catch(() => {})
+  }, [configReady, outputDir, imagePath, filenamePrefix])
 
   useEffect(() => {
     let canceled = false
@@ -46,6 +103,15 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
       canceled = true
     }
   }, [imagePath])
+
+  useEffect(() => {
+    const handleProgress = (_event: unknown, payload: unknown): void => {
+      setProgress(payload as Mp4ProgressEvent)
+    }
+
+    window.electron.on('mp3-to-mp4:progress', handleProgress)
+    return () => window.electron.off('mp3-to-mp4:progress', handleProgress)
+  }, [])
 
   const resolveDroppedFiles = useCallback(async (dataTransfer: DataTransfer): Promise<File[]> => {
     const files = Array.from(dataTransfer.files ?? [])
@@ -152,24 +218,43 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
     if (!imagePath || audioPaths.length === 0) return
     setConverting(true)
     setResults(null)
+    setProgress({
+      phase: 'starting',
+      current: 0,
+      total: audioPaths.length,
+      percent: 0,
+      fileName: ''
+    })
     try {
       const res = await window.electron.convertMp3ToMp4({
         imagePath,
         audioPaths,
-        outputDir: outputDir || undefined
+        outputDir: outputDir || undefined,
+        filenamePrefix: filenamePrefix.trim() || undefined
       })
-      setResults(res)
+      if (res.canceled) {
+        setResults({
+          outputs: res.outputs,
+          errors:
+            res.errors.length > 0 ? res.errors : ['Canceled by user']
+        })
+      } else {
+        setResults(res)
+      }
     } catch (err: unknown) {
       setResults({ outputs: [], errors: [(err as Error).message] })
     } finally {
       setConverting(false)
     }
-  }, [imagePath, audioPaths, outputDir])
+  }, [imagePath, audioPaths, outputDir, filenamePrefix])
 
   const canConvert = imagePath && audioPaths.length > 0 && !converting
+  const handleCancel = useCallback(() => {
+    window.electron.cancelMp3ToMp4().catch(() => {})
+  }, [])
 
   return (
-    <div style={s.backdrop} onClick={onClose}>
+    <div style={s.backdrop} onClick={() => !converting && onClose?.()}>
       <div style={s.modal} onClick={(e) => e.stopPropagation()}>
         <div style={s.header}>
           <h3 style={s.title}>
@@ -177,7 +262,11 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
             <span>MP3 → MP4 Converter</span>
           </h3>
           {onClose && (
-            <button style={s.closeBtn} onClick={onClose} title="Close">
+            <button
+              style={{ ...s.closeBtn, opacity: converting ? 0.45 : 1 }}
+              onClick={() => !converting && onClose()}
+              title={converting ? 'Wait for conversion to finish or cancel it first' : 'Close'}
+            >
               <IcoX size={14} stroke="currentColor" />
             </button>
           )}
@@ -282,6 +371,18 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
           <div style={s.hint}>If not selected, you`&apos;`ll be asked for each file.</div>
         </div>
 
+        <div style={s.section}>
+          <label style={s.label}>Filename Prefix</label>
+          <input
+            value={filenamePrefix}
+            onChange={(e) => setFilenamePrefix(e.target.value)}
+            placeholder="สถานะเสริมของข้าระยะเวลาคงอยู่ไร้ขีดจำกัด"
+            spellCheck={false}
+            style={s.input}
+          />
+          <div style={s.hint}>Output example: {exampleName}</div>
+        </div>
+
         {/* Convert Button */}
         <button
           style={{
@@ -303,6 +404,52 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
             </>
           )}
         </button>
+        {converting && (
+          <button style={s.cancelBtn} onClick={handleCancel}>
+            <IcoX size={14} stroke="currentColor" />
+            Cancel
+          </button>
+        )}
+
+        {progress && converting && (
+          <div style={s.progressCard}>
+            <div style={s.progressHeader}>
+              <span>
+                {progress.current > 0
+                  ? `กำลังแปลง ${progress.current}/${progress.total}`
+                  : `เตรียมแปลง ${progress.total} ไฟล์`}
+              </span>
+              <span>{progress.percent}%</span>
+            </div>
+            <div style={s.progressBarTrack}>
+              <div style={{ ...s.progressBarFill, width: `${progress.percent}%` }} />
+            </div>
+            {progress.current > 0 && (
+              <>
+                <div style={s.progressSubHeader}>
+                  <span>ไฟล์ปัจจุบัน</span>
+                  <span>{progress.filePercent ?? 0}%</span>
+                </div>
+                <div style={s.progressBarTrack}>
+                  <div
+                    style={{
+                      ...s.progressBarFill,
+                      background: 'var(--hl-teal)',
+                      width: `${progress.filePercent ?? 0}%`
+                    }}
+                  />
+                </div>
+                <div style={s.progressTime}>
+                  {formatTime(progress.elapsedSeconds)} / {formatTime(progress.totalSeconds)}
+                </div>
+              </>
+            )}
+            <div style={s.progressMeta}>
+              {progress.fileName || 'กำลังเริ่มต้น...'}
+              {progress.phase === 'error' && progress.error ? ` · ${progress.error}` : ''}
+            </div>
+          </div>
+        )}
 
         {/* Results */}
         {results && (
@@ -422,6 +569,15 @@ const s: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 6
+  },
+  input: {
+    background: 'var(--bg2)',
+    border: '1px solid var(--border)',
+    borderRadius: 4,
+    padding: '8px 10px',
+    color: 'var(--text1)',
+    fontSize: 13,
+    outline: 'none'
   },
   path: {
     fontSize: 13,
@@ -569,6 +725,20 @@ const s: Record<string, React.CSSProperties> = {
     opacity: 0.5,
     cursor: 'not-allowed'
   },
+  cancelBtn: {
+    marginTop: 8,
+    background: 'transparent',
+    color: 'var(--text1)',
+    border: '1px solid var(--border)',
+    borderRadius: 6,
+    padding: '8px 12px',
+    cursor: 'pointer',
+    fontSize: 13,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8
+  },
   results: {
     marginTop: 12,
     display: 'flex',
@@ -608,5 +778,53 @@ const s: Record<string, React.CSSProperties> = {
     margin: '4px 0 0 0',
     paddingLeft: 20,
     fontSize: 12
+  },
+  progressCard: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--bg2)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8
+  },
+  progressHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    fontSize: 12,
+    color: 'var(--text1)',
+    fontWeight: 500
+  },
+  progressSubHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    fontSize: 11,
+    color: 'var(--text2)'
+  },
+  progressTime: {
+    fontSize: 11,
+    color: 'var(--text2)',
+    fontFamily: 'var(--font-mono)'
+  },
+  progressBarTrack: {
+    width: '100%',
+    height: 8,
+    borderRadius: 999,
+    background: 'var(--bg3)',
+    overflow: 'hidden'
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 999,
+    background: 'var(--accent)',
+    transition: 'width 0.2s ease'
+  },
+  progressMeta: {
+    fontSize: 11,
+    color: 'var(--text2)',
+    wordBreak: 'break-word'
   }
 }

@@ -455,7 +455,7 @@ export function EntryForm({
         {/* ✅ Type dropdown REMOVED — was here before */}
 
         {/* Sub-path (nested format only) */}
-        {isNested && Object.keys(pathTree).length > 0 && (
+        {isNested && (
           <CascadingPathSelect tree={pathTree} selected={selectedPath} onChange={setSelectedPath} />
         )}
 

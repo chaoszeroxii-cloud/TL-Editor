@@ -8,6 +8,7 @@ interface CustomSelectProps {
   placeholder: string
   indent?: number
   onChange: (v: string) => void
+  onCreate?: (v: string) => void
 }
 
 function CustomSelect({
@@ -15,9 +16,11 @@ function CustomSelect({
   value,
   placeholder,
   indent = 0,
-  onChange
+  onChange,
+  onCreate
 }: CustomSelectProps): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState('')
   const wrapRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -30,6 +33,8 @@ function CustomSelect({
   }, [open])
 
   const hasValue = !!value
+  const trimmedDraft = draft.trim()
+  const canCreate = !!trimmedDraft && !options.some((opt) => opt.toLowerCase() === trimmedDraft.toLowerCase())
 
   return (
     <div ref={wrapRef} style={{ position: 'relative', width: '100%' }}>
@@ -110,6 +115,80 @@ function CustomSelect({
             overflowY: 'auto'
           }}
         >
+          {onCreate && (
+            <div
+              style={{
+                padding: '8px 9px',
+                borderBottom: '1px solid rgba(46,51,64,0.55)',
+                background: 'var(--bg2)'
+              }}
+            >
+              <input
+                autoFocus
+                value={draft}
+                placeholder="พิมพ์ sub-path ใหม่…"
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && canCreate) {
+                    e.preventDefault()
+                    onCreate(trimmedDraft)
+                    setDraft('')
+                    setOpen(false)
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  background: 'var(--bg1)',
+                  border: '1px solid rgba(91,138,240,0.28)',
+                  borderRadius: 5,
+                  color: 'var(--text0)',
+                  fontSize: 11,
+                  padding: '5px 7px',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  fontFamily: 'var(--font-mono)'
+                }}
+              />
+              {trimmedDraft && (
+                <button
+                  type="button"
+                  disabled={!canCreate}
+                  onClick={() => {
+                    if (!canCreate) return
+                    onCreate(trimmedDraft)
+                    setDraft('')
+                    setOpen(false)
+                  }}
+                  style={{
+                    width: '100%',
+                    marginTop: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 8px',
+                    background: canCreate ? 'rgba(91,138,240,0.12)' : 'rgba(46,51,64,0.45)',
+                    border: '1px dashed rgba(91,138,240,0.35)',
+                    borderRadius: 5,
+                    cursor: canCreate ? 'pointer' : 'not-allowed',
+                    textAlign: 'left',
+                    opacity: canCreate ? 1 : 0.6
+                  }}
+                >
+                  <span style={{ color: 'var(--accent)', fontSize: 12, lineHeight: 1 }}>+</span>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: canCreate ? 'var(--accent)' : 'var(--text2)',
+                      fontFamily: 'var(--font-mono)'
+                    }}
+                  >
+                    สร้าง sub-path: {trimmedDraft}
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Clear option */}
           <button
             type="button"
@@ -226,15 +305,18 @@ export function CascadingPathSelect({
   onChange
 }: CascadingPathSelectProps): JSX.Element {
   const levels: { options: string[]; value: string }[] = []
-  let node = tree
+  let node: PathTree = tree
 
-  for (let depth = 0; ; depth++) {
+  for (let depth = 0; depth === 0 || !!selected[depth - 1]; depth++) {
     const options = Object.keys(node).sort()
-    if (!options.length) break
-    const val = selected[depth] ?? ''
-    levels.push({ options, value: val })
-    if (val && node[val]) node = node[val]
-    else break
+    const value = selected[depth] ?? ''
+    levels.push({ options, value })
+    if (!value) break
+    node = node[value] ?? {}
+    if (!Object.keys(node).length && selected[depth + 1] === undefined) {
+      levels.push({ options: [], value: '' })
+      break
+    }
   }
 
   if (!levels.length) return <></>
@@ -262,6 +344,10 @@ export function CascadingPathSelect({
           onChange={(v) => {
             // When clearing or changing a level, drop all deeper selections
             const next = [...selected.slice(0, depth), v].filter(Boolean)
+            onChange(next)
+          }}
+          onCreate={(v) => {
+            const next = [...selected.slice(0, depth), v.trim()].filter(Boolean)
             onChange(next)
           }}
         />

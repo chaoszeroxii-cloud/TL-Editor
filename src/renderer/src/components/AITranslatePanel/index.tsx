@@ -7,7 +7,9 @@ import { extractNewEntries } from './extractNewEntries'
 import type { PendingEntry } from './extractNewEntries'
 import { NewEntryReview } from './NewEntryReview'
 import { ParaphraseTab } from './ParaphraseTab'
+import { StyleProfilePanel } from '../StyleProfile/StyleProfilePanel'
 import { IcoSparkle, IcoFile, IcoKey, IcoX } from '../common/icons'
+import type { StyleProfile } from '../StyleProfile/types'
 
 interface OpenRouterResponse {
   choices: {
@@ -54,11 +56,28 @@ interface AITranslatePanelProps {
   /** ข้อความที่ส่งมาจาก context menu "ส่งไป Paraphrase" */
   paraphraseInput?: string | null
   onParaphraseInputConsumed?: () => void
+  profilePanel: {
+    profile: StyleProfile | null
+    isAnalyzing: boolean
+    analyzeError: string | null
+    apiKey: string
+    onAnalyze: (model: string) => void
+    onClearCorrections: () => void
+    onResetProfile: () => void
+  }
+  profileActive?: boolean
+  onSelectWorkTab?: () => void
+  onSelectProfileTab?: () => void
 }
 
-type PanelTab = 'translate' | 'paraphrase'
+type PanelTab = 'translate' | 'paraphrase' | 'profile'
 
 const BASE_TYPES = ['person', 'place', 'term', 'other']
+
+const MODELS = [
+  { id: 'deepseek/deepseek-v4-flash', label: 'V4 Flash' },
+  { id: 'deepseek/deepseek-v4-pro', label: 'V4 Pro' }
+] as const
 
 export function AITranslatePanel({
   srcContent,
@@ -71,7 +90,11 @@ export function AITranslatePanel({
   stylePromptSnippet = '',
   onPushParaphrase,
   paraphraseInput,
-  onParaphraseInputConsumed
+  onParaphraseInputConsumed,
+  profilePanel,
+  profileActive = false,
+  onSelectWorkTab,
+  onSelectProfileTab
 }: AITranslatePanelProps): JSX.Element {
   const [activeTab, setActiveTab] = useState<PanelTab>('translate')
 
@@ -79,6 +102,7 @@ export function AITranslatePanel({
   const [apiKey, setApiKey] = useState(savedConfig.apiKey)
   const [promptPath, setPromptPath] = useState(savedConfig.promptPath)
   const [glossaryPath, setGlossaryPath] = useState(savedConfig.glossaryPath)
+  const [model, setModel] = useState<string>(MODELS[0].id)
   const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
   const [statusMsg, setStatusMsg] = useState('')
   const [showKey, setShowKey] = useState(false)
@@ -105,9 +129,18 @@ export function AITranslatePanel({
   useEffect(() => {
     if (paraphraseInput) {
       setActiveTab('paraphrase')
+      onSelectWorkTab?.()
       onParaphraseInputConsumed?.()
     }
-  }, [paraphraseInput, setActiveTab, onParaphraseInputConsumed])
+  }, [paraphraseInput, setActiveTab, onParaphraseInputConsumed, onSelectWorkTab])
+
+  useEffect(() => {
+    if (profileActive) {
+      setActiveTab('profile')
+    } else if (activeTab === 'profile') {
+      setActiveTab('translate')
+    }
+  }, [profileActive, activeTab])
 
   const browsePrompt = async (): Promise<void> => {
     const p = await window.electron.openFile([{ name: 'Text / Prompt', extensions: ['txt', 'md'] }])
@@ -160,7 +193,7 @@ export function AITranslatePanel({
 
       const response = await window.electron.openrouterChat({
         apiKey: apiKey.trim(),
-        model: 'deepseek/deepseek-v4-flash',
+        model,
         messages: [
           { role: 'system', content: systemMsg },
           { role: 'user', content: srcContent }
@@ -204,7 +237,7 @@ export function AITranslatePanel({
       setStatusMsg(String(e))
       setNetworkRequestId(null)
     }
-  }, [apiKey, promptPath, glossaryPath, srcContent, onResult, fileNames, stylePromptSnippet])
+  }, [apiKey, promptPath, glossaryPath, model, srcContent, onResult, fileNames, stylePromptSnippet])
 
   const handleAddSelected = useCallback((): void => {
     const selected = pendingEntries.filter((e) => e.selected)
@@ -251,7 +284,7 @@ export function AITranslatePanel({
           <IcoSparkle size={13} stroke="currentColor" />
         </span>
         <span style={s.headerTitle}>AI Translate</span>
-        <span style={s.model}>deepseek-v4-flash</span>
+        <span style={s.model}>{MODELS.find((m) => m.id === model)?.label ?? model}</span>
       </div>
 
       {/* Tab switcher */}
@@ -264,11 +297,32 @@ export function AITranslatePanel({
           flexShrink: 0
         }}
       >
-        <button style={tabStyle('translate')} onClick={() => setActiveTab('translate')}>
+        <button
+          style={tabStyle('translate')}
+          onClick={() => {
+            setActiveTab('translate')
+            onSelectWorkTab?.()
+          }}
+        >
           <IcoSparkle size={10} stroke="currentColor" /> แปล
         </button>
-        <button style={tabStyle('paraphrase')} onClick={() => setActiveTab('paraphrase')}>
+        <button
+          style={tabStyle('paraphrase')}
+          onClick={() => {
+            setActiveTab('paraphrase')
+            onSelectWorkTab?.()
+          }}
+        >
           ✦ เกลา
+        </button>
+        <button
+          style={tabStyle('profile')}
+          onClick={() => {
+            setActiveTab('profile')
+            onSelectProfileTab?.()
+          }}
+        >
+          ✦ Profile
         </button>
       </div>
 
@@ -277,6 +331,32 @@ export function AITranslatePanel({
         {/* ════════════ TRANSLATE TAB ════════════ */}
         {activeTab === 'translate' && (
           <>
+            <div style={s.field}>
+              <label style={s.label}>MODEL</label>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {MODELS.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => setModel(m.id)}
+                    style={{
+                      flex: 1,
+                      padding: '4px 6px',
+                      border: '1px solid var(--border)',
+                      borderRadius: 5,
+                      cursor: 'pointer',
+                      fontSize: 10,
+                      fontFamily: 'var(--font-mono)',
+                      background: model === m.id ? 'var(--accent-dim)' : 'var(--bg2)',
+                      color: model === m.id ? 'var(--accent)' : 'var(--text2)',
+                      fontWeight: model === m.id ? 600 : 400
+                    }}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div style={s.field}>
               <label style={s.label}>
                 <IcoKey size={12} stroke="currentColor" /> API Key
@@ -548,11 +628,25 @@ export function AITranslatePanel({
             )}
             <ParaphraseTab
               apiKey={apiKey}
+              model={model}
               stylePromptSnippet={stylePromptSnippet}
               onPushToTgt={onPushParaphrase}
               initialInput={paraphraseInput ?? undefined}
             />
           </>
+        )}
+
+        {activeTab === 'profile' && (
+          <StyleProfilePanel
+            profile={profilePanel.profile}
+            isAnalyzing={profilePanel.isAnalyzing}
+            analyzeError={profilePanel.analyzeError}
+            apiKey={profilePanel.apiKey}
+            onAnalyze={() => profilePanel.onAnalyze(model)}
+            onClearCorrections={profilePanel.onClearCorrections}
+            onResetProfile={profilePanel.onResetProfile}
+            embedded
+          />
         )}
       </div>
 

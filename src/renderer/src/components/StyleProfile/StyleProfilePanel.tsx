@@ -524,7 +524,8 @@ export interface StyleProfilePanelProps {
   onAnalyze: () => void
   onClearCorrections: () => void
   onResetProfile: () => void
-  onClose: () => void
+  onClose?: () => void
+  embedded?: boolean
 }
 
 export const StyleProfilePanel = memo(function StyleProfilePanel({
@@ -535,7 +536,8 @@ export const StyleProfilePanel = memo(function StyleProfilePanel({
   onAnalyze,
   onClearCorrections,
   onResetProfile,
-  onClose
+  onClose,
+  embedded = false
 }: StyleProfilePanelProps): JSX.Element {
   const [tab, setTab] = useState<PanelTab>('guide')
 
@@ -564,69 +566,73 @@ export const StyleProfilePanel = memo(function StyleProfilePanel({
   return (
     <div
       style={{
-        width: 280,
+        width: embedded ? '100%' : 280,
         background: 'var(--bg1)',
-        borderLeft: '1px solid var(--border)',
+        borderLeft: embedded ? 'none' : '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
-        overflow: 'hidden'
+        overflow: 'hidden',
+        flex: embedded ? 1 : undefined
       }}
     >
-      {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '7px 10px',
-          borderBottom: '1px solid var(--border)',
-          background: 'var(--bg2)',
-          flexShrink: 0
-        }}
-      >
-        <span style={{ fontSize: 13 }}>✦</span>
-        <span
+      {!embedded && (
+        <div
           style={{
-            fontSize: 11,
-            fontWeight: 600,
-            color: 'var(--text0)',
-            fontFamily: 'var(--font-mono)',
-            letterSpacing: '0.04em',
-            flex: 1
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '7px 10px',
+            borderBottom: '1px solid var(--border)',
+            background: 'var(--bg2)',
+            flexShrink: 0
           }}
         >
-          Style Profile
-        </span>
-        {isDirty && (
+          <span style={{ fontSize: 13 }}>✦</span>
           <span
             style={{
-              fontSize: 9,
-              color: 'var(--hl-gold)',
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'var(--text0)',
               fontFamily: 'var(--font-mono)',
-              background: 'var(--hl-gold-bg)',
-              border: '1px solid var(--hl-gold-border)',
-              padding: '1px 6px',
-              borderRadius: 99
+              letterSpacing: '0.04em',
+              flex: 1
             }}
           >
-            {corrections.length} new
+            Style Profile
           </span>
-        )}
-        <button
-          onClick={onClose}
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            color: 'var(--text2)',
-            fontSize: 12,
-            padding: '2px 4px'
-          }}
-        >
-          ✕
-        </button>
-      </div>
+          {isDirty && (
+            <span
+              style={{
+                fontSize: 9,
+                color: 'var(--hl-gold)',
+                fontFamily: 'var(--font-mono)',
+                background: 'var(--hl-gold-bg)',
+                border: '1px solid var(--hl-gold-border)',
+                padding: '1px 6px',
+                borderRadius: 99
+              }}
+            >
+              {corrections.length} new
+            </span>
+          )}
+          {onClose && (
+            <button
+              onClick={onClose}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--text2)',
+                fontSize: 12,
+                padding: '2px 4px'
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Stats bar */}
       {stats && stats.totalCorrections > 0 && (
@@ -761,7 +767,7 @@ export const StyleProfilePanel = memo(function StyleProfilePanel({
           display: 'flex',
           background: 'var(--bg2)',
           borderBottom: '1px solid var(--border)',
-          padding: '0 10px',
+          padding: embedded ? '0 0' : '0 10px',
           flexShrink: 0
         }}
       >

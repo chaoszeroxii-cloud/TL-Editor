@@ -58,6 +58,14 @@ function compile(glossary: GlossaryEntry[]): { re: RegExp; map: Map<string, Glos
         map.set(g.src + sfx, g)
         map.set(g.src.toLowerCase() + sfx, g)
       }
+      // E-drop: "refine" → "refining", "refined", "refiner", "refiners"
+      if (/[^e]e$/i.test(g.src)) {
+        const edrop = g.src.slice(0, -1)
+        for (const sfx of ['ing', 'ed', 'er', 'ers']) {
+          map.set(edrop + sfx, g)
+          map.set(edrop.toLowerCase() + sfx, g)
+        }
+      }
     }
   }
 
@@ -65,7 +73,12 @@ function compile(glossary: GlossaryEntry[]): { re: RegExp; map: Map<string, Glos
   const pat = sorted
     .map((g) => {
       const esc = g.src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      return needsBoundary(g.src) ? `\\b${esc}(?:'s|s|es|ed|ing|er|ers)?\\b` : esc
+      if (!needsBoundary(g.src)) return esc
+      if (/[^e]e$/i.test(g.src)) {
+        const edropEsc = esc.slice(0, -1)
+        return `\\b(?:${esc}(?:'s|s|es)?|${edropEsc}(?:ed|ing|er|ers))\\b`
+      }
+      return `\\b${esc}(?:'s|s|es|ed|ing|er|ers)?\\b`
     })
     .join('|')
 

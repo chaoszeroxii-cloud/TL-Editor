@@ -128,6 +128,7 @@ export interface RowProps {
   navCol: number | null
   navDir: 'up' | 'down' | null
   findRanges?: FindRange[]
+  activeMatchIdx?: number
   isSrc?: boolean
   tone?: ToneName
   onToneChange?: (tone: ToneName) => void
@@ -160,6 +161,7 @@ export const Row = memo(function Row({
   navCol,
   navDir,
   findRanges,
+  activeMatchIdx = -1,
   isSrc = false,
   tone = 'normal',
   onToneChange,
@@ -190,8 +192,8 @@ export const Row = memo(function Row({
   const segments = useMemo(() => tokenize(text, glossary), [text, glossary])
   const renderSegs = useMemo((): FindSeg[] | null => {
     if (!findRanges?.length) return null
-    return buildRenderSegs(text, segments, findRanges)
-  }, [text, segments, findRanges])
+    return buildRenderSegs(text, segments, findRanges, activeMatchIdx)
+  }, [text, segments, findRanges, activeMatchIdx])
 
   useEffect(() => {
     if (isEditing && taRef.current && taRef.current.value !== text) taRef.current.value = text
