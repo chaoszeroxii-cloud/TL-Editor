@@ -909,6 +909,54 @@ export function registerExternalHandlers(): void {
     }
   )
 
+  // ── Concatenate MP3 segments via ffmpeg (for smart TTS re-gen) ──────────────
+  // Takes an array of base64-encoded MP3 strings, writes to temp files,
+  // concatenates with ffmpeg stream copy (no re-encode), returns base64 result.
+  ipcMain.handle('concat-mp3s', async (_e, audioBase64Array: string[]) => {
+    if (!audioBase64Array.length) throw new Error('concat-mp3s: no segments provided')
+
+    const tmpBase = app.getPath('temp')
+    const ts = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const segPaths: string[] = []
+    const listPath = join(tmpBase, `tts_list_${ts}.txt`)
+    const outPath = join(tmpBase, `tts_out_${ts}.mp3`)
+
+    try {
+      for (let i = 0; i < audioBase64Array.length; i++) {
+        const p = join(tmpBase, `tts_seg_${ts}_${i}.mp3`)
+        await fsPromises.writeFile(p, Buffer.from(audioBase64Array[i], 'base64'))
+        segPaths.push(p)
+      }
+
+      const listContent = segPaths.map((p) => `file '${p.replace(/\\/g, '/')}'`).join('\n')
+      await fsPromises.writeFile(listPath, listContent, 'utf-8')
+
+      const ffmpegBin = resolveBundledFfmpegPath() || 'ffmpeg'
+      await new Promise<void>((resolve, reject) => {
+        const proc = spawn(
+          ffmpegBin,
+          ['-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', '-y', outPath],
+          { windowsHide: true }
+        )
+        let stderr = ''
+        proc.stderr.on('data', (c) => {
+          stderr += String(c)
+        })
+        proc.on('error', reject)
+        proc.on('close', (code) =>
+          code === 0 ? resolve() : reject(new Error(stderr.slice(0, 300)))
+        )
+      })
+
+      const buf = await fsPromises.readFile(outPath)
+      return buf.toString('base64')
+    } finally {
+      for (const p of [...segPaths, listPath, outPath]) {
+        fsPromises.unlink(p).catch(() => {})
+      }
+    }
+  })
+
   // ── Health check handlers for TTS API (keep-alive) ────────────────────────
   ipcMain.handle('start-health-check', (_e, config?: Partial<HealthCheckConfig>) => {
     const mergedConfig = { ...defaultHealthConfig, ...config }

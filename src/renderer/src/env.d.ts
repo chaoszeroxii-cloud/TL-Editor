@@ -143,6 +143,8 @@ interface ElectronAPI {
     ffmpegPath?: string
   }) => Promise<{ canceled?: boolean; outputs: string[]; errors: string[] }>
   cancelMp3ToMp4: () => Promise<boolean>
+  /** Concatenate base64 MP3 segments via ffmpeg stream copy. Returns base64 result. */
+  concatMp3s: (audioBase64Array: string[]) => Promise<string>
 }
 
 declare global {

@@ -186,6 +186,8 @@ const CorrectionLog = memo(function CorrectionLog({
   onClear: () => void
 }) {
   const recent = useMemo(() => [...corrections].reverse().slice(0, 50), [corrections])
+  const analyzedCount = corrections.filter((c) => c.analyzed).length
+  const newCount = corrections.length - analyzedCount
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
@@ -208,8 +210,14 @@ const CorrectionLog = memo(function CorrectionLog({
           }}
         >
           Corrections ({corrections.length})
+          {analyzedCount > 0 && (
+            <span style={{ color: 'var(--text2)', opacity: 0.6 }}>
+              {' '}
+              — {analyzedCount} analyzed · {newCount} new
+            </span>
+          )}
         </span>
-        {corrections.length > 0 && (
+        {analyzedCount > 0 && (
           <button
             onClick={onClear}
             style={{
@@ -221,7 +229,7 @@ const CorrectionLog = memo(function CorrectionLog({
               fontFamily: 'var(--font-mono)'
             }}
           >
-            ล้าง
+            ล้าง {analyzedCount}
           </button>
         )}
       </div>
@@ -332,6 +340,19 @@ const CorrectionLog = memo(function CorrectionLog({
             }}
           >
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, marginBottom: 4 }}>
+              {/* Analyzed / New indicator */}
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  flexShrink: 0,
+                  marginTop: 2,
+                  background: c.analyzed ? 'var(--text2)' : 'var(--hl-teal)',
+                  opacity: c.analyzed ? 0.4 : 1
+                }}
+                title={c.analyzed ? 'วิเคราะห์แล้ว' : 'ยังไม่วิเคราะห์'}
+              />
               {c.tags.map((tag) => (
                 <TagChip key={tag} tag={tag} size="xs" />
               ))}
@@ -544,7 +565,8 @@ export const StyleProfilePanel = memo(function StyleProfilePanel({
   const stats = profile?.stats
   const corrections = profile?.corrections ?? []
   const patterns = profile?.patterns ?? []
-  const canAnalyze = corrections.length >= 3 && !isAnalyzing && !!apiKey.trim()
+  const unanalyzedCount = corrections.filter((c) => !c.analyzed).length
+  const canAnalyze = unanalyzedCount >= 3 && !isAnalyzing && !!apiKey.trim()
   const isDirty = profile?.isDirty ?? false
 
   const tabStyle = (t: PanelTab): React.CSSProperties => ({
@@ -613,7 +635,7 @@ export const StyleProfilePanel = memo(function StyleProfilePanel({
                 borderRadius: 99
               }}
             >
-              {corrections.length} new
+              {corrections.filter((c) => !c.analyzed).length} new
             </span>
           )}
           {onClose && (
@@ -741,8 +763,8 @@ export const StyleProfilePanel = memo(function StyleProfilePanel({
             </>
           ) : (
             <>
-              ✦ Analyze Style ({corrections.length}
-              {corrections.length < 3 ? '/3 min' : ' ✓'})
+              ✦ Analyze Style ({unanalyzedCount}
+              {unanalyzedCount < 3 ? '/3 min' : ' ✓'})
             </>
           )}
         </button>

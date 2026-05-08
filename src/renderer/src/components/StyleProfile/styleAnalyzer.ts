@@ -35,11 +35,13 @@ export function aggregatePatterns(corrections: Correction[]): StylePattern[] {
 
 // ── Build analysis prompt ─────────────────────────────────────────────────────
 
-function buildAnalysisPrompt(corrections: Correction[]): string {
-  // Pick most representative corrections (max 30 for token budget)
-  const sample = corrections
-    .filter((c) => c.similarity < 0.95) // Only actual changes
-    .slice(-30) // Most recent
+function buildAnalysisPrompt(
+  corrections: Correction[],
+  previousStyleGuide?: string,
+  previousPromptSnippet?: string
+): string {
+  // Pick most representative corrections (max 50, only un-analyzed)
+  const sample = corrections.filter((c) => !c.analyzed && c.similarity < 0.95).slice(-50)
 
   const pairs = sample
     .map(
@@ -47,7 +49,16 @@ function buildAnalysisPrompt(corrections: Correction[]): string {
     )
     .join('\n\n')
 
-  return `You are analyzing a Thai novel translator's editing patterns.
+  const hasPrevious = !!(previousStyleGuide || previousPromptSnippet)
+  const modeInstructions = hasPrevious
+    ? `REFINE MODE: Below is the EXISTING style guide and prompt snippet from a previous analysis. REFINE and UPDATE them based on the new corrections, rather than rewriting from scratch. Keep what still applies, adjust what needs changing, and add new observations.`
+    : `FIRST ANALYSIS: Create a new style guide from these corrections.`
+
+  const previousBlock = hasPrevious
+    ? `\n\n--- EXISTING STYLE GUIDE (to refine) ---\n${previousStyleGuide ?? ''}\n\n--- EXISTING PROMPT SNIPPET (to refine) ---\n${previousPromptSnippet ?? ''}\n--- END EXISTING ---\n`
+    : ''
+
+  return `You are analyzing a Thai novel translator's editing patterns. ${modeInstructions}${previousBlock}
 
 Below are ${sample.length} correction pairs — the translator's original edits to AI-generated translations.
 
@@ -80,13 +91,15 @@ interface AnalysisResponse {
 export async function runStyleAnalysis(
   corrections: Correction[],
   apiKey: string,
-  model = 'deepseek/deepseek-v4-flash'
+  model = 'deepseek/deepseek-v4-pro',
+  previousStyleGuide?: string,
+  previousPromptSnippet?: string
 ): Promise<{ styleGuide: string; promptSnippet: string; patterns: StylePattern[] }> {
   if (corrections.length < 3) {
     throw new Error('ต้องมีอย่างน้อย 3 corrections ก่อน analyze')
   }
 
-  const prompt = buildAnalysisPrompt(corrections)
+  const prompt = buildAnalysisPrompt(corrections, previousStyleGuide, previousPromptSnippet)
 
   // Call via Electron IPC (same pattern as AITranslatePanel)
   const response = await window.electron.openrouterChat({

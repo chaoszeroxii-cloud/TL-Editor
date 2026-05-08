@@ -153,7 +153,7 @@ let _histId = 0
 
 export function ParaphraseTab({
   apiKey,
-  model = 'deepseek/deepseek-v4-flash',
+  model = 'deepseek/deepseek-v4-pro',
   stylePromptSnippet,
   onPushToTgt,
   initialInput

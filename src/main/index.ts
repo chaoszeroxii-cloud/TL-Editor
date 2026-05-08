@@ -59,7 +59,17 @@ function createWindow(): void {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
-
+// ─── GPU fallback (for stability during dev) ──────────────────────────────────
+// If GPU process keeps crashing, set GPU_DISABLED=1 env var to disable hardware accel.
+// Usage: GPU_DISABLED=1 npm run dev
+if (process.env.GPU_DISABLED === '1') {
+  app.disableHardwareAcceleration()
+} else {
+  // NVIDIA GPU crash workaround (Chromium/Electron issue)
+  // Disable ANGLE and use OpenGL instead
+  app.commandLine.appendSwitch('use-gl', 'desktop')
+  app.commandLine.appendSwitch('disable-features', 'UseDXGIForScreenCapture')
+}
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {

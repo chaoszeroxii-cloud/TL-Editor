@@ -6,6 +6,8 @@
 export interface Correction {
   id: string
   timestamp: number
+  /** Whether this correction has been sent to AI for analysis */
+  analyzed?: boolean
   /** Original AI-generated text (single row) */
   before: string
   /** User's corrected version */

@@ -75,8 +75,8 @@ type PanelTab = 'translate' | 'paraphrase' | 'profile'
 const BASE_TYPES = ['person', 'place', 'term', 'other']
 
 const MODELS = [
-  { id: 'deepseek/deepseek-v4-flash', label: 'V4 Flash' },
-  { id: 'deepseek/deepseek-v4-pro', label: 'V4 Pro' }
+  { id: 'deepseek/deepseek-v4-pro', label: 'V4 Pro' },
+  { id: 'deepseek/deepseek-v4-flash', label: 'V4 Flash' }
 ] as const
 
 export function AITranslatePanel({

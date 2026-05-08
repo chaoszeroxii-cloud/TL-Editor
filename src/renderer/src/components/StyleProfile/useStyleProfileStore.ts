@@ -132,8 +132,14 @@ export function useStyleProfileStore(rootDir: string | null): StyleProfileStore 
   const analyze = useCallback(
     async (apiKey: string, model?: string) => {
       const p = profileRef.current
-      if (!p || p.corrections.length < 3) {
-        setAnalyzeError('ต้องมีอย่างน้อย 3 corrections ก่อน analyze')
+      if (!p) {
+        setAnalyzeError('ไม่พบ profile')
+        return
+      }
+      // Count un-analyzed corrections (only those count toward min threshold)
+      const unanalyzed = p.corrections.filter((c) => !c.analyzed)
+      if (unanalyzed.length < 3) {
+        setAnalyzeError('ต้องมีอย่างน้อย 3 corrections ที่ยังไม่วิเคราะห์')
         return
       }
       if (!apiKey.trim()) {
@@ -148,16 +154,21 @@ export function useStyleProfileStore(rootDir: string | null): StyleProfileStore 
         const { styleGuide, promptSnippet, patterns } = await runStyleAnalysis(
           p.corrections,
           apiKey,
-          model
+          model,
+          p.styleGuide || undefined,
+          p.promptSnippet || undefined
         )
 
         setProfile((prev) => {
           if (!prev) return prev
+          // Mark all existing corrections as analyzed
+          const marked = prev.corrections.map((c) => ({ ...c, analyzed: true }))
           const updated: StyleProfile = {
             ...prev,
+            corrections: marked,
             styleGuide,
             promptSnippet,
-            patterns: patterns.length > 0 ? patterns : aggregatePatterns(prev.corrections),
+            patterns: patterns.length > 0 ? patterns : aggregatePatterns(marked),
             isDirty: false,
             updatedAt: Date.now()
           }
@@ -173,17 +184,19 @@ export function useStyleProfileStore(rootDir: string | null): StyleProfileStore 
     [persist]
   )
 
-  // ── Clear corrections (keep guide) ────────────────────────────────────────
+  // ── Clear analyzed corrections (keep un-analyzed) ───────────────────────
 
   const clearCorrections = useCallback(() => {
     setProfile((prev) => {
       if (!prev) return prev
+      const remaining = prev.corrections.filter((c) => !c.analyzed)
+      if (remaining.length === prev.corrections.length) return prev // nothing analyzed to remove
       const updated: StyleProfile = {
         ...prev,
-        corrections: [],
-        isDirty: false,
+        corrections: remaining,
+        isDirty: remaining.length > 0,
         updatedAt: Date.now(),
-        stats: computeStats([])
+        stats: computeStats(remaining)
       }
       return updated
     })

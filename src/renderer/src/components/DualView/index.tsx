@@ -710,6 +710,10 @@ export function DualView({
     (rowIdx: number, gender: VoiceGender) => setLineVoiceGender?.(rowIdx, gender),
     [setLineVoiceGender]
   )
+  const handlePlayRow = useCallback(
+    (rowIndex: number, text: string) => handleTts(text, rowIndex),
+    [handleTts]
+  )
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -821,6 +825,7 @@ export function DualView({
                 onToneChange={handleRowToneChange}
                 voiceGender={currentVoiceGender}
                 onVoiceGenderChange={handleRowVoiceGenderChange}
+                onPlayRow={handlePlayRow}
               />
             )
           })}

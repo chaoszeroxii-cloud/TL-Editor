@@ -1,4 +1,4 @@
-import { memo, useRef, useCallback, JSX } from 'react'
+import { memo, useRef, useCallback, useState, JSX } from 'react'
 import type { GlossaryEntry } from '../../types'
 import { Row, ROW_H } from './Row'
 import type { FindRange } from './findHighlight'
@@ -44,6 +44,7 @@ export interface VRowPairProps {
   onToneChange?: (rowIdx: number, tone: ToneName) => void
   voiceGender?: VoiceGender
   onVoiceGenderChange?: (rowIdx: number, gender: VoiceGender) => void
+  onPlayRow?: (rowIndex: number, text: string) => void
 }
 
 export const VRowPair = memo(function VRowPair({
@@ -85,9 +86,11 @@ export const VRowPair = memo(function VRowPair({
   tone = 'normal',
   onToneChange,
   voiceGender = 'female',
-  onVoiceGenderChange
+  onVoiceGenderChange,
+  onPlayRow
 }: VRowPairProps): JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null)
+  const [tgtHovered, setTgtHovered] = useState(false)
 
   const enter = useCallback(() => onMouseEnter(rowIndex), [onMouseEnter, rowIndex])
   const startTgt = useCallback(() => onStartEdit(rowIndex, 'tgt'), [onStartEdit, rowIndex])
@@ -144,7 +147,40 @@ export const VRowPair = memo(function VRowPair({
       data-row={rowIndex}
       style={{ display: 'flex', minHeight: ROW_H, borderBottom: '1px solid rgba(46,51,64,0.5)' }}
     >
-      <div style={{ ...cellStyle, flex: `0 0 ${splitPos}%` }}>
+      <div
+        style={{ ...cellStyle, flex: `0 0 ${splitPos}%`, position: 'relative' }}
+        onMouseEnter={() => setTgtHovered(true)}
+        onMouseLeave={() => setTgtHovered(false)}
+      >
+        {tgtHovered && !isEditing && tgtText.trim() && onPlayRow && (
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.stopPropagation()
+              onPlayRow(rowIndex, tgtText)
+            }}
+            title="ฟังเสียงบรรทัดนี้"
+            style={{
+              position: 'absolute',
+              right: 4,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              zIndex: 10,
+              background: 'var(--bg3)',
+              border: '1px solid var(--border)',
+              borderRadius: 4,
+              color: 'var(--hl-teal)',
+              fontSize: 10,
+              padding: '1px 6px',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-mono)',
+              lineHeight: 1.4,
+              opacity: 0.85
+            }}
+          >
+            ▶
+          </button>
+        )}
         <Row
           rowNum={rowNum}
           text={tgtText}

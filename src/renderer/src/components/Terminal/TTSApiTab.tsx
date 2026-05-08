@@ -39,6 +39,17 @@ interface TtsProgressEvent {
   requestId: string
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  const CHUNK = 8192
+  let bin = ''
+  for (let i = 0; i < bytes.byteLength; i += CHUNK) {
+    bin += String.fromCharCode(...Array.from(bytes.subarray(i, i + CHUNK)))
+  }
+  return btoa(bin)
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function TTSApiTab({
@@ -63,6 +74,17 @@ export function TTSApiTab({
   const [showGlossaries, setShowGlossaries] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const audioRef = useRef<HTMLAudioElement>(null)
+
+  // ── Smart Gen state (Feature A) ─────────────────────────────────────────────
+  // Cache: line text → base64 audio.  Keyed by exact text so unchanged lines
+  // are reused across re-gens without an extra API call.
+  const lineAudioCache = useRef(new Map<string, string>())
+  const [lastGenLines, setLastGenLines] = useState<string[]>([])
+  const [smartStatus, setSmartStatus] = useState<'idle' | 'generating' | 'ok' | 'error'>('idle')
+  const [smartMsg, setSmartMsg] = useState('')
+  const [smartProgress, setSmartProgress] = useState<{ current: number; total: number } | null>(
+    null
+  )
 
   const update = (patch: Partial<TtsApiConfig>): void => onConfigChange({ ...config, ...patch })
 
@@ -319,6 +341,107 @@ export function TTSApiTab({
       setTtsMsg(e instanceof Error ? e.message.slice(0, 160) : String(e))
     }
   }
+
+  // ── Smart Gen (per-line with cache) ─────────────────────────────────────────
+
+  // Non-blank lines of current TGT content, preserving original index for context.
+  const currentLines = (tgtContent || '').split('\n').filter((l) => l.trim())
+
+  // Lines whose text is not yet in the cache → need re-generation.
+  const changedCount =
+    lastGenLines.length > 0 ? currentLines.filter((l) => !lineAudioCache.current.has(l)).length : 0
+
+  const generateSmartTts = useCallback(
+    async (regenChangedOnly: boolean) => {
+      if (!tgtContent?.trim() || !config.outputPath?.trim() || !config.apiUrl?.trim()) return
+
+      const apiUrl = config.apiUrl.trim()
+      const lines = (tgtContent || '').split('\n').filter((l) => l.trim())
+      const toGen = regenChangedOnly
+        ? lines.filter((l) => !lineAudioCache.current.has(l))
+        : lines
+
+      if (!regenChangedOnly) lineAudioCache.current.clear()
+
+      setSmartStatus('generating')
+      setSmartProgress({ current: 0, total: toGen.length })
+      setSmartMsg(
+        regenChangedOnly
+          ? `เจนเสียง ${toGen.length} บรรทัดที่เปลี่ยน…`
+          : `เจนเสียง ${toGen.length} บรรทัด…`
+      )
+
+      const BATCH = 4
+      let done = 0
+      const skipped: string[] = []
+
+      try {
+        for (let i = 0; i < toGen.length; i += BATCH) {
+          const batch = toGen.slice(i, i + BATCH)
+          await Promise.all(
+            batch.map(async (line) => {
+              try {
+                const filteredBfLib = filterUsedGlossariesFromRecord(line, glossaries?.bf_lib)
+                const filteredAtLib = filterUsedGlossariesFromRecord(line, glossaries?.at_lib)
+                const resp = await fetch(`${apiUrl}/generate`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    text: line,
+                    bf_lib: filteredBfLib,
+                    at_lib: filteredAtLib,
+                    rate: config.rate || '+35%',
+                    voice_gender: config.voiceGender || 'Female',
+                    voice_name: config.voiceName || null,
+                    lang: 'th'
+                  })
+                })
+                if (!resp.ok) {
+                  skipped.push(line.slice(0, 30))
+                } else {
+                  const bytes = new Uint8Array(await resp.arrayBuffer())
+                  lineAudioCache.current.set(line, uint8ToBase64(bytes))
+                }
+              } catch {
+                skipped.push(line.slice(0, 30))
+              }
+              done++
+              setSmartProgress({ current: done, total: toGen.length })
+            })
+          )
+        }
+
+        // Assemble segments in content order (lines that failed are simply omitted)
+        const ordered = lines
+          .map((l) => lineAudioCache.current.get(l))
+          .filter((b): b is string => !!b)
+        if (!ordered.length) throw new Error('ไม่มี audio segments — ทุก line ล้มเหลว')
+
+        setSmartMsg('กำลัง concat เสียง…')
+        const combinedBase64 = await window.electron.concatMp3s(ordered)
+
+        const filename = tgtPath
+          ? `${tgtPath.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, '')}.mp3`
+          : 'voice.mp3'
+        await window.electron.saveAudioFile(combinedBase64, filename, config.outputPath)
+
+        setLastGenLines(lines)
+        setSmartStatus('ok')
+        setSmartMsg(
+          skipped.length > 0
+            ? `✓ บันทึก: ${filename} · ข้าม ${skipped.length} บรรทัด (เสียงไม่ออก): ${skipped.join(', ')}`
+            : `✓ บันทึก: ${filename} (${lines.length} บรรทัด)`
+        )
+        setSmartProgress(null)
+      } catch (e) {
+        setSmartStatus('error')
+        setSmartMsg(e instanceof Error ? e.message.slice(0, 160) : String(e))
+        setSmartProgress(null)
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tgtContent, config, glossaries, tgtPath]
+  )
 
   // ── Styles ──────────────────────────────────────────────────────────────────
   const inp: React.CSSProperties = {
@@ -873,6 +996,100 @@ export function TTSApiTab({
           )}
         </button>
       </div>
+
+      {/* ── Smart Gen row ───────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 4 }}>
+        <button
+          onClick={() => generateSmartTts(false)}
+          disabled={
+            smartStatus === 'generating' || !config.apiUrl.trim() || !tgtContent?.trim() || !config.outputPath?.trim()
+          }
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            background: smartStatus === 'generating' ? 'var(--bg2)' : 'var(--bg3)',
+            border: `1px solid ${smartStatus === 'generating' ? 'var(--border)' : 'rgba(255,180,0,0.45)'}`,
+            borderLeft: `3px solid ${smartStatus === 'generating' ? 'var(--border)' : 'var(--hl-gold)'}`,
+            color: smartStatus === 'generating' ? 'var(--text2)' : 'var(--hl-gold)',
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: 'var(--font-mono)',
+            letterSpacing: '0.03em',
+            padding: '6px 10px',
+            borderRadius: 4,
+            cursor: smartStatus === 'generating' || !config.apiUrl.trim() || !tgtContent?.trim() || !config.outputPath?.trim() ? 'not-allowed' : 'pointer',
+            opacity: !config.apiUrl.trim() || !tgtContent?.trim() || !config.outputPath?.trim() ? 0.4 : 1
+          }}
+          title="Gen เสียงทีละ line, cache ไว้ — ครั้งถัดไปจะเร็วขึ้น"
+        >
+          {smartStatus === 'generating' && smartProgress ? (
+            <>
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ animation: 'spin 1s linear infinite' }}>
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+              {smartProgress.current}/{smartProgress.total} บรรทัด…
+            </>
+          ) : (
+            '⚡ Smart Gen (per-line)'
+          )}
+        </button>
+
+        {changedCount > 0 && smartStatus !== 'generating' && (
+          <button
+            onClick={() => generateSmartTts(true)}
+            disabled={!config.outputPath?.trim()}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 5,
+              background: 'rgba(255,180,0,0.12)',
+              border: '1px solid rgba(255,180,0,0.5)',
+              borderLeft: '3px solid var(--hl-gold)',
+              color: 'var(--hl-gold)',
+              fontSize: 10,
+              fontWeight: 700,
+              fontFamily: 'var(--font-mono)',
+              padding: '6px 10px',
+              borderRadius: 4,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap'
+            }}
+            title={`Re-gen เฉพาะ ${changedCount} บรรทัดที่เปลี่ยน แล้ว concat ใหม่`}
+          >
+            ↺ Re-gen {changedCount} บรรทัด
+          </button>
+        )}
+      </div>
+
+      {/* Smart Gen progress bar */}
+      {smartStatus === 'generating' && smartProgress && smartProgress.total > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--hl-gold)', fontFamily: 'var(--font-mono)' }}>
+            <span>{smartMsg}</span>
+            <span>{Math.round((smartProgress.current / smartProgress.total) * 100)}%</span>
+          </div>
+          <div style={{ width: '100%', height: 5, borderRadius: 999, background: 'var(--bg3)', overflow: 'hidden' }}>
+            <div style={{ width: `${(smartProgress.current / smartProgress.total) * 100}%`, height: '100%', borderRadius: 999, background: 'var(--hl-gold)', transition: 'width 0.2s ease' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Smart Gen status */}
+      {smartMsg && smartStatus !== 'generating' && (
+        <div style={{
+          padding: '5px 9px', borderRadius: 5, border: '1px solid', fontSize: 10,
+          fontFamily: 'var(--font-mono)', lineHeight: 1.5, wordBreak: 'break-all',
+          background: smartStatus === 'error' ? 'rgba(240,122,106,0.08)' : smartStatus === 'ok' ? 'rgba(255,180,0,0.08)' : 'var(--bg3)',
+          borderColor: smartStatus === 'error' ? 'rgba(240,122,106,0.3)' : smartStatus === 'ok' ? 'rgba(255,180,0,0.3)' : 'var(--border)',
+          color: smartStatus === 'error' ? 'var(--hl-coral)' : smartStatus === 'ok' ? 'var(--hl-gold)' : 'var(--text2)'
+        }}>
+          {smartMsg}
+        </div>
+      )}
 
       {/* TTS status */}
       {ttsMsg && (
