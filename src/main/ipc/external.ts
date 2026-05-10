@@ -344,8 +344,14 @@ export function registerExternalHandlers(): void {
       const requestId = generateRequestId()
       return new Promise<{ requestId: string; data: string }>((resolve, reject) => {
         try {
-          const timeout = 300_000 // 5 minutes
-          const body = JSON.stringify({ model, messages, temperature: 0.3, max_tokens: 15000 })
+          const timeout = 600_000 // 10 minutes
+          const body = JSON.stringify({
+            model,
+            messages,
+            temperature: 0.3,
+            max_tokens: 15000,
+            provider: { order: ['DeepSeek'], allow_fallbacks: false }
+          })
 
           const timeoutHandle = setTimeout(() => {
             const record = activeRequests.get(requestId)
