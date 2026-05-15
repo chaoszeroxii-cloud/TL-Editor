@@ -1,7 +1,7 @@
 // ─── AITranslatePanel/index.tsx ──────────────────────────────────────────────
 // เพิ่ม tab "เกลา" และ prop onPushParaphrase สำหรับ find-replace ใน TGT
 
-import { useState, useCallback, useRef, useEffect, JSX } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo, JSX } from 'react'
 import type { GlossaryEntry } from '../../types'
 import { extractNewEntries } from './extractNewEntries'
 import type { PendingEntry } from './extractNewEntries'
@@ -10,6 +10,7 @@ import { ParaphraseTab } from './ParaphraseTab'
 import { StyleProfilePanel } from '../StyleProfile/StyleProfilePanel'
 import { IcoSparkle, IcoFile, IcoKey, IcoX } from '../common/icons'
 import type { StyleProfile } from '../StyleProfile/types'
+import { parseGlossaryFile } from '../../utils/glossaryParsers'
 
 interface OpenRouterResponse {
   choices: {
@@ -79,6 +80,65 @@ const MODELS = [
   { id: 'deepseek/deepseek-v4-flash', label: 'V4 Flash' }
 ] as const
 
+// ─── Nested glossary reconstruction ────────────────────────────────────────
+
+/**
+ * Build a nested JSON object from GlossaryEntry[] using their `path` field.
+ * path: [topType, ...nestedKeys, leafKey]
+ * When a leaf has alt[], include "Called" array; when it has note, include
+ * "รายละเอียด". The result mimics the original nested glossary structure.
+ */
+function buildNestedFromEntries(entries: GlossaryEntry[]): Record<string, unknown> {
+  const root: Record<string, unknown> = {}
+  for (const e of entries) {
+    if (!e.path || e.path.length === 0) {
+      // No path → use type grouping
+      const group = (root[e.type] as Record<string, unknown> | undefined) ?? {}
+      root[e.type] = group
+      writeLeaf(group, e)
+      continue
+    }
+    let cursor: Record<string, unknown> = root
+    for (let i = 0; i < e.path.length - 1; i++) {
+      const seg = e.path[i]
+      const existing = cursor[seg]
+      if (
+        existing !== undefined &&
+        typeof existing === 'object' &&
+        existing !== null &&
+        !Array.isArray(existing)
+      ) {
+        cursor = existing as Record<string, unknown>
+      } else {
+        const next: Record<string, unknown> = {}
+        cursor[seg] = next
+        cursor = next
+      }
+    }
+    const lastKey = e.path[e.path.length - 1]
+    const leafGroup = (cursor[lastKey] as Record<string, unknown> | undefined) ?? {}
+    cursor[lastKey] = leafGroup
+    writeLeaf(leafGroup, e)
+  }
+  return root
+}
+
+function writeLeaf(group: Record<string, unknown>, e: GlossaryEntry): void {
+  // Build a lean nested entry
+  const node: Record<string, unknown> = {}
+  if (e.alt && e.alt.length > 0) {
+    // Use Called array
+    node.Called = [e.th, ...e.alt]
+  } else {
+    node.Called = e.th
+  }
+  if (e.note) {
+    node['รายละเอียด'] = e.note
+  }
+  // Merge into existing group — use src as key
+  group[e.src] = node
+}
+
 export function AITranslatePanel({
   srcContent,
   onResult,
@@ -121,6 +181,75 @@ export function AITranslatePanel({
     ...new Set([...BASE_TYPES, ...glossary.map((g) => g.type).filter(Boolean)])
   ].sort()
 
+  // ── Glossary file dropdown ──────────────────────────────────────────────
+  const [glossDropdownOpen, setGlossDropdownOpen] = useState(false)
+  const glossDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!glossDropdownOpen) return
+    const handler = (e: MouseEvent): void => {
+      if (glossDropdownRef.current && !glossDropdownRef.current.contains(e.target as Node))
+        setGlossDropdownOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [glossDropdownOpen])
+
+  // ── Match & filter: only entries whose src appears in current content ───
+  const matchEntry = useCallback(
+    (g: GlossaryEntry): boolean => {
+      if (!g.src) return false
+      const isLatin = /[A-Za-z]/.test(g.src)
+      const esc = g.src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const pat = isLatin
+        ? new RegExp(`\\b${esc}(?:'s|s|es|ed|ing|er|ers)?\\b`, 'i')
+        : new RegExp(esc)
+      return srcContent ? pat.test(srcContent) : false
+    },
+    [srcContent]
+  )
+
+  const filteredGlossary = useMemo(() => glossary.filter(matchEntry), [glossary, matchEntry])
+
+  const glossDropdownItems = useMemo(() => {
+    const allCount = filteredGlossary.length
+    const items: { label: string; value: string; count: number }[] = [
+      { label: 'ไม่มี glossary', value: '', count: 0 }
+    ]
+    if (fileNames.length > 0) {
+      items.push({ label: 'ทุกไฟล์', value: '__all__', count: allCount })
+      for (const fn of fileNames) {
+        const count = filteredGlossary.filter((g) => g._file === fn).length
+        items.push({ label: fn.replace(/\.json$/i, ''), value: fn, count })
+      }
+    }
+    return items
+  }, [filteredGlossary, fileNames])
+
+  const glossSelectedLabel = useMemo(() => {
+    if (!glossaryPath) return 'ไม่มี glossary'
+    if (glossaryPath === '__all__') {
+      const n = filteredGlossary.length
+      return `ทุกไฟล์ (${n})`
+    }
+    const label = glossaryPath.replace(/\.json$/i, '')
+    const n = filteredGlossary.filter((g) => g._file === glossaryPath).length
+    return `${label} (${n})`
+  }, [glossaryPath, filteredGlossary])
+
+  const glossPreviewEntries = useMemo(() => {
+    if (!glossaryPath) return [] as GlossaryEntry[]
+    if (glossaryPath === '__all__') return filteredGlossary
+    return filteredGlossary.filter((g) => g._file === glossaryPath)
+  }, [glossaryPath, filteredGlossary])
+
+  const glossPreviewNested = useMemo(
+    () => (glossPreviewEntries.length > 0 ? buildNestedFromEntries(glossPreviewEntries) : null),
+    [glossPreviewEntries]
+  )
+
+  const [glossPreviewOpen, setGlossPreviewOpen] = useState(false)
+
   useEffect(() => {
     onConfigChange({ apiKey, promptPath, glossaryPath })
   }, [apiKey, promptPath, glossaryPath, onConfigChange])
@@ -146,11 +275,6 @@ export function AITranslatePanel({
     const p = await window.electron.openFile([{ name: 'Text / Prompt', extensions: ['txt', 'md'] }])
     if (p) setPromptPath(p)
   }
-  const browseGlossary = async (): Promise<void> => {
-    const p = await window.electron.openFile([{ name: 'Glossary JSON', extensions: ['json'] }])
-    if (p) setGlossaryPath(p)
-  }
-
   const handleTranslate = useCallback(async (): Promise<void> => {
     if (!apiKey.trim() || !srcContent.trim()) return
     abortRef.current = new AbortController()
@@ -174,10 +298,22 @@ export function AITranslatePanel({
 
       let glossaryText = ''
       if (glossaryPath) {
-        try {
-          glossaryText = await window.electron.readFile(glossaryPath)
-        } catch {
-          /* skip */
+        if (glossaryPath === '__all__') {
+          const nested = buildNestedFromEntries(filteredGlossary)
+          glossaryText = JSON.stringify(nested, null, 2)
+        } else {
+          const filePath = sourceFilePaths[glossaryPath]
+          if (filePath) {
+            try {
+              const rawJson = await window.electron.readFile(filePath)
+              const parsed = parseGlossaryFile(glossaryPath, rawJson)
+              const matched = parsed.entries.filter(matchEntry)
+              const nested = buildNestedFromEntries(matched)
+              glossaryText = JSON.stringify(nested, null, 2)
+            } catch {
+              /* skip */
+            }
+          }
         }
       }
 
@@ -237,7 +373,19 @@ export function AITranslatePanel({
       setStatusMsg(String(e))
       setNetworkRequestId(null)
     }
-  }, [apiKey, promptPath, glossaryPath, model, srcContent, onResult, fileNames, stylePromptSnippet])
+  }, [
+    apiKey,
+    promptPath,
+    glossaryPath,
+    model,
+    srcContent,
+    onResult,
+    fileNames,
+    stylePromptSnippet,
+    filteredGlossary,
+    matchEntry,
+    sourceFilePaths
+  ])
 
   const handleAddSelected = useCallback((): void => {
     const selected = pendingEntries.filter((e) => e.selected)
@@ -403,23 +551,245 @@ export function AITranslatePanel({
               <label style={s.label}>
                 <IcoFile size={12} stroke="currentColor" /> Glossary JSON
               </label>
-              <div style={s.inputRow}>
-                <div style={s.pathChip} title={glossaryPath}>
-                  {glossaryPath ? (
-                    glossaryPath.split(/[\\/]/).pop()
-                  ) : (
-                    <span style={{ color: 'var(--text2)' }}>ไม่มี glossary</span>
-                  )}
-                </div>
-                <button onClick={browseGlossary} style={s.browseBtn}>
-                  Browse…
+              <div ref={glossDropdownRef} style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setGlossDropdownOpen((v) => !v)}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    background: glossDropdownOpen ? 'var(--bg3)' : 'var(--bg2)',
+                    border: `1px solid ${glossDropdownOpen ? 'rgba(91,138,240,0.45)' : 'var(--border)'}`,
+                    borderRadius: 5,
+                    color: glossaryPath ? 'var(--hl-teal)' : 'var(--text2)',
+                    fontSize: 10,
+                    padding: '5px 8px',
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-mono)',
+                    textAlign: 'left' as const
+                  }}
+                >
+                  <span
+                    style={{
+                      flex: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {glossSelectedLabel}
+                  </span>
+                  <span style={{ fontSize: 8, color: 'var(--text2)', flexShrink: 0 }}>
+                    {glossDropdownOpen ? '▲' : '▼'}
+                  </span>
                 </button>
-                {glossaryPath && (
-                  <button onClick={() => setGlossaryPath('')} style={s.clearBtn}>
-                    <IcoX size={10} stroke="currentColor" />
-                  </button>
+                {glossDropdownOpen && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      zIndex: 999,
+                      marginTop: 3,
+                      background: 'var(--bg2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 6,
+                      boxShadow: '0 6px 20px rgba(0,0,0,0.45)',
+                      overflow: 'hidden',
+                      maxHeight: 200,
+                      overflowY: 'auto'
+                    }}
+                  >
+                    {glossDropdownItems.map((item, i) => {
+                      const isActive =
+                        glossaryPath === item.value || (!glossaryPath && item.value === '')
+                      const isNone = item.value === ''
+                      return (
+                        <button
+                          key={item.value}
+                          onClick={() => {
+                            setGlossaryPath(item.value)
+                            setGlossDropdownOpen(false)
+                          }}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            padding: '6px 9px',
+                            background: isActive ? 'rgba(62,207,160,0.1)' : 'none',
+                            border: 'none',
+                            borderBottom:
+                              i < glossDropdownItems.length - 1
+                                ? '1px solid rgba(46,51,64,0.4)'
+                                : 'none',
+                            color: isActive
+                              ? 'var(--hl-teal)'
+                              : isNone
+                                ? 'var(--text2)'
+                                : 'var(--text1)',
+                            fontSize: 10,
+                            cursor: 'pointer',
+                            fontFamily: 'var(--font-mono)',
+                            textAlign: 'left' as const
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isActive) e.currentTarget.style.background = 'var(--bg3)'
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isActive) e.currentTarget.style.background = 'none'
+                          }}
+                        >
+                          {isActive && (
+                            <span
+                              style={{
+                                fontSize: 8,
+                                color: 'var(--hl-teal)',
+                                flexShrink: 0
+                              }}
+                            >
+                              ✓
+                            </span>
+                          )}
+                          <span
+                            style={{
+                              flex: 1,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              paddingLeft: isActive ? 0 : 12
+                            }}
+                          >
+                            {item.label}
+                          </span>
+                          {item.value !== '' && (
+                            <span
+                              style={{
+                                fontSize: 9,
+                                color: 'var(--accent)',
+                                background: 'var(--accent-dim)',
+                                padding: '1px 7px',
+                                borderRadius: 99,
+                                fontFamily: 'var(--font-mono)',
+                                flexShrink: 0
+                              }}
+                            >
+                              {item.count}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
                 )}
               </div>
+
+              {/* Preview: entries that will be sent to AI */}
+              {glossaryPath && glossPreviewEntries.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 4,
+                    border: '1px solid var(--border)',
+                    borderRadius: 5,
+                    overflow: 'hidden'
+                  }}
+                >
+                  <button
+                    onClick={() => setGlossPreviewOpen((v) => !v)}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '4px 8px',
+                      background: glossPreviewOpen ? 'var(--bg2)' : 'var(--bg3)',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: 'var(--text2)',
+                      fontSize: 9,
+                      fontFamily: 'var(--font-mono)',
+                      letterSpacing: '0.04em'
+                    }}
+                  >
+                    <svg
+                      width="8"
+                      height="8"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    >
+                      <polyline points={glossPreviewOpen ? '18 15 12 9 6 15' : '6 9 12 15 18 9'} />
+                    </svg>
+                    <span style={{ flex: 1, textAlign: 'left' }}>
+                      GLOSSARY PREVIEW — {glossPreviewEntries.length} entries
+                    </span>
+                    <span style={{ fontSize: 8, color: 'var(--accent)' }}>
+                      ~{glossPreviewNested ? JSON.stringify(glossPreviewNested).length : 0} chars
+                    </span>
+                  </button>
+                  {glossPreviewOpen && (
+                    <div
+                      style={{
+                        maxHeight: 120,
+                        overflowY: 'auto',
+                        background: 'var(--bg0)',
+                        borderTop: '1px solid var(--border)',
+                        padding: '4px 6px'
+                      }}
+                    >
+                      {glossPreviewEntries.map((e, idx) => {
+                        const rowBorder =
+                          idx < glossPreviewEntries.length - 1 ? '1px solid var(--bg3)' : 'none'
+                        return (
+                          <div
+                            key={idx}
+                            style={{
+                              display: 'flex',
+                              gap: 5,
+                              padding: '2px 0',
+                              fontSize: 9,
+                              fontFamily: 'var(--font-mono)',
+                              color: 'var(--text1)',
+                              borderBottom: rowBorder
+                            }}
+                          >
+                            <span
+                              style={{
+                                color: 'var(--hl-gold)',
+                                flexShrink: 0,
+                                width: 60,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}
+                              title={e.src}
+                            >
+                              {e.src}
+                            </span>
+                            <span style={{ color: 'var(--text2)' }}>→</span>
+                            <span
+                              style={{
+                                color: 'var(--hl-teal)',
+                                flex: 1,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}
+                              title={e.th}
+                            >
+                              {e.th}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {statusMsg && (

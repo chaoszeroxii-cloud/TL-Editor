@@ -190,7 +190,8 @@ const s: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
-    background: 'var(--bg1)'
+    background: 'var(--bg1)',
+    overflow: 'y-auto'
   },
   field: { display: 'flex', flexDirection: 'column', gap: 4 },
   label: {
