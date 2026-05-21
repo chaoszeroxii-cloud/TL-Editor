@@ -191,7 +191,8 @@ const s: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: 8,
     background: 'var(--bg1)',
-    overflow: 'y-auto'
+    maxHeight: 220,
+    overflowY: 'auto'
   },
   field: { display: 'flex', flexDirection: 'column', gap: 4 },
   label: {
@@ -221,7 +222,7 @@ const s: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     gap: 6,
-    maxHeight: 220,
+    maxHeight: 100,
     overflowY: 'auto'
   },
   pendingRow: {
