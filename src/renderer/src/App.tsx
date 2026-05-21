@@ -56,6 +56,35 @@ export default function App(): JSX.Element {
   const files = useFileStore()
   const gls = useGlossaryStore()
 
+  // ── Theme toggle ─────────────────────────────────────────────────────────
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    return (localStorage.getItem('theme') as 'dark' | 'light') || 'dark'
+  })
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('theme', theme)
+  }, [theme])
+  const toggleTheme = useCallback(() => setTheme((t) => (t === 'dark' ? 'light' : 'dark')), [])
+
+  // ── Font switcher ────────────────────────────────────────────────────────
+  type FontChoice = 'system' | 'sarabun' | 'noto' | 'ibm'
+  const FONT_CYCLE: FontChoice[] = ['system', 'sarabun', 'noto', 'ibm']
+  const FONT_LABEL: Record<FontChoice, string> = { system: 'Sys', sarabun: 'Sara', noto: 'Noto', ibm: 'IBM' }
+  const [font, setFont] = useState<FontChoice>(() => (localStorage.getItem('font') as FontChoice) || 'system')
+  useEffect(() => {
+    if (font === 'system') document.documentElement.removeAttribute('data-font')
+    else document.documentElement.setAttribute('data-font', font)
+    localStorage.setItem('font', font)
+  }, [font])
+  const cycleFont = useCallback(
+    () => setFont((f) => FONT_CYCLE[(FONT_CYCLE.indexOf(f) + 1) % FONT_CYCLE.length]),
+    []
+  )
+
+  // ── Tone controls toggle (default off) ──────────────────────────────────
+  const [showToneControls, setShowToneControls] = useState(false)
+  const toggleToneControls = useCallback(() => setShowToneControls((v) => !v), [])
+
   // ── Setup wizard ────────────────────────────────────────────────────────
   const [showSetup, setShowSetup] = useState(false)
   const ttsGlossaries = useMemo<GlossaryLibraries>(() => {
@@ -465,21 +494,7 @@ export default function App(): JSX.Element {
   )
 
   const hasAnyFile = files.tgtPath !== null
-  const shortcutHint = hasAnyFile
-    ? [
-        'Ctrl+S save',
-        files.srcPath ? 'Ctrl+⇧S save src' : '',
-        'Ctrl+Z/Y undo/redo',
-        'Ctrl+F find',
-        'Ctrl+B sidebar',
-        'Ctrl+G glossary',
-        'Ctrl+R refresh',
-        'Ctrl+⇧C copy TGT',
-        files.srcPath ? 'Ctrl+Alt+C copy SRC' : ''
-      ]
-        .filter(Boolean)
-        .join('  ·  ')
-    : ''
+  const [helpOpen, setHelpOpen] = useState(false)
 
   // ── Setup wizard ─────────────────────────────────────────────────────────
   if (showSetup) return <SetupWizard onDone={handleSetupDone} />
@@ -516,6 +531,10 @@ export default function App(): JSX.Element {
           aiPanelOpen={app.aiPanelOpen || app.styleProfileOpen}
           pairingSourcePath={pairingSourcePath}
           saving={files.saving}
+          theme={theme}
+          fontLabel={FONT_LABEL[font]}
+          onCycleFont={cycleFont}
+          showToneControls={showToneControls}
           onToggleSidebar={app.toggleSidebar}
           onToggleGlossary={app.toggleGlossary}
           onToggleTts={app.toggleTerminal}
@@ -523,6 +542,8 @@ export default function App(): JSX.Element {
           onToggleAi={handleToggleAiPanel}
           onSelectPairingSource={handleSelectPairingSource}
           onRefresh={handleRefresh}
+          onToggleTheme={toggleTheme}
+          onToggleToneControls={toggleToneControls}
         />
       </div>
 
@@ -582,6 +603,7 @@ export default function App(): JSX.Element {
                   setLineTone={files.setLineTone}
                   getLineVoiceGender={(idx) => files.getLineVoiceGender(idx) as VoiceGender}
                   setLineVoiceGender={files.setLineVoiceGender}
+                  showToneControls={showToneControls}
                 />
               </ErrorBoundary>
             </>
@@ -673,20 +695,100 @@ export default function App(): JSX.Element {
         <StatusItem label="Ln" value={files.activeRow >= 0 ? String(files.activeRow + 1) : '—'} />
         <StatusItem label="Rows" value={String(rowCount)} />
         <StatusItem label="Matches" value={String(matchCount)} />
-        {shortcutHint && (
-          <span
-            style={{
-              marginLeft: 'auto',
-              color: 'var(--text2)',
-              fontSize: 10,
-              fontFamily: 'var(--font-mono)',
-              opacity: 0.7
-            }}
-          >
-            {shortcutHint}
-          </span>
-        )}
+        <button
+          onClick={() => setHelpOpen(true)}
+          style={{
+            marginLeft: 'auto',
+            background: 'none',
+            border: 'none',
+            color: 'var(--text2)',
+            fontSize: 11,
+            fontFamily: 'var(--font-mono)',
+            cursor: 'pointer',
+            padding: '0 4px',
+            opacity: 0.6,
+            lineHeight: 1
+          }}
+          title="Keyboard shortcuts"
+        >
+          ?
+        </button>
       </div>
+
+      {helpOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 2000,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+          onClick={() => setHelpOpen(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg2)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: '24px 28px',
+              minWidth: 320,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.4)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 16, color: 'var(--text0)', fontSize: 13 }}>
+              Keyboard Shortcuts
+            </div>
+            {[
+              ['Ctrl+S', 'Save translation'],
+              ['Ctrl+Shift+S', 'Save source'],
+              ['Ctrl+Z / Ctrl+Y', 'Undo / Redo'],
+              ['Ctrl+F', 'Find & Replace'],
+              ['Ctrl+B', 'Toggle sidebar'],
+              ['Ctrl+G', 'Toggle glossary'],
+              ['Ctrl+R', 'Refresh'],
+              ['Ctrl+Shift+C', 'Copy TGT'],
+              ['Ctrl+Alt+C', 'Copy SRC']
+            ].map(([key, label]) => (
+              <div
+                key={key}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: 24,
+                  marginBottom: 8
+                }}
+              >
+                <span
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent)' }}
+                >
+                  {key}
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--text1)' }}>{label}</span>
+              </div>
+            ))}
+            <button
+              onClick={() => setHelpOpen(false)}
+              style={{
+                marginTop: 16,
+                width: '100%',
+                padding: '6px 0',
+                background: 'var(--bg3)',
+                border: '1px solid var(--border)',
+                borderRadius: 4,
+                color: 'var(--text1)',
+                fontSize: 12,
+                cursor: 'pointer'
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       <Tooltip />
 
@@ -720,28 +822,32 @@ type ActionButtonProps = {
 const ActionButton = memo(function ActionButton({
   active,
   icon,
-  label,
   title,
-  onClick,
-  compact
+  onClick
 }: ActionButtonProps) {
   return (
     <button
       style={{
         ...s.badge,
         cursor: 'pointer',
-        border: '1px solid var(--border)',
+        border: '1px solid transparent',
         background: active ? 'var(--accent-dim)' : 'none',
-        color: active ? 'var(--accent)' : 'var(--text2)'
+        color: active ? 'var(--accent)' : 'var(--text2)',
+        padding: '3px 7px'
       }}
       onClick={onClick}
       title={title}
     >
       {icon}
-      {!compact && label}
     </button>
   )
 })
+
+const ToolSep = (): JSX.Element => (
+  <div
+    style={{ width: 1, background: 'var(--border)', height: 14, margin: '0 3px', flexShrink: 0 }}
+  />
+)
 
 const TopBarRight = memo(function TopBarRight({
   rootDir,
@@ -755,13 +861,19 @@ const TopBarRight = memo(function TopBarRight({
   aiPanelOpen,
   pairingSourcePath,
   saving,
+  theme,
+  fontLabel,
+  showToneControls,
   onToggleSidebar,
   onToggleGlossary,
   onToggleTts,
   onToggleMp3Converter,
   onToggleAi,
   onSelectPairingSource,
-  onRefresh
+  onRefresh,
+  onToggleTheme,
+  onToggleToneControls,
+  onCycleFont
 }: {
   rootDir: string | null
   hasAnyFile: boolean
@@ -774,6 +886,9 @@ const TopBarRight = memo(function TopBarRight({
   aiPanelOpen: boolean
   pairingSourcePath: string
   saving: boolean
+  theme: 'dark' | 'light'
+  fontLabel: string
+  showToneControls: boolean
   onToggleSidebar: () => void
   onToggleGlossary: () => void
   onToggleTts: () => void
@@ -781,6 +896,9 @@ const TopBarRight = memo(function TopBarRight({
   onToggleMp3Converter: () => void
   onSelectPairingSource: () => void
   onRefresh: () => void
+  onToggleTheme: () => void
+  onToggleToneControls: () => void
+  onCycleFont: () => void
 }) {
   const compact = useCompactTopBar()
 
@@ -811,20 +929,20 @@ const TopBarRight = memo(function TopBarRight({
         </span>
       )}
 
+      {/* View group */}
       <ActionButton
         active={sidebarVisible}
         icon="☰"
-        label=" Sidebar"
+        label=""
         title="Sidebar (Ctrl+B)"
         onClick={onToggleSidebar}
         compact={compact}
       />
-
       <ActionButton
         active={glossaryVisible}
         icon="◧"
-        label={` Glossary ${glossaryLen}`}
-        title="Glossary (Ctrl+G)"
+        label=""
+        title={`Glossary · ${glossaryLen} entries (Ctrl+G)`}
         onClick={onToggleGlossary}
         compact={compact}
       />
@@ -832,7 +950,7 @@ const TopBarRight = memo(function TopBarRight({
         <ActionButton
           active={false}
           icon="↺"
-          label=" refresh"
+          label=""
           title="Refresh (Ctrl+R)"
           onClick={onRefresh}
           compact={compact}
@@ -840,59 +958,86 @@ const TopBarRight = memo(function TopBarRight({
       )}
 
       <ActionButton
+        active={showToneControls}
+        icon="♪"
+        label=""
+        title="Show tone/gender controls per row"
+        onClick={onToggleToneControls}
+        compact={compact}
+      />
+
+      <ToolSep />
+
+      {/* Tools group */}
+      <ActionButton
         active={ttsOpen}
         icon={<IcoMusic size={11} stroke="currentColor" />}
-        label=" TTS"
+        label=""
         title="TTS (Ctrl+`)"
         onClick={onToggleTts}
         compact={compact}
       />
-
       <ActionButton
         active={mp3ConverterOpen}
-        icon={<IcoMusic size={11} stroke="currentColor" />}
-        label=" MP3→MP4"
-        title="MP3 to MP4 Converter"
+        icon="▶▶"
+        label=""
+        title="MP3 → MP4 Converter"
         onClick={onToggleMp3Converter}
         compact={compact}
       />
-
       <button
         onClick={onSelectPairingSource}
-        title={
-          pairingSourcePath
-            ? `Source compare path\n${pairingSourcePath}`
-            : 'Select source compare path for chapter-number auto pairing'
-        }
+        title={pairingSourcePath ? `Source pair: ${pairingSourcePath}` : 'Set source pair path'}
         style={{
           ...s.badge,
           cursor: 'pointer',
-          border: '1px solid var(--border)',
-          background: pairingSourcePath ? 'rgba(62,207,160,0.08)' : 'none',
-          color: pairingSourcePath ? 'var(--hl-teal)' : 'var(--text2)',
-          maxWidth: compact ? 34 : 180,
-          overflow: 'hidden',
-          whiteSpace: 'nowrap',
-          textOverflow: 'ellipsis'
+          border: '1px solid transparent',
+          background: pairingSourcePath ? 'var(--accent-dim)' : 'none',
+          color: pairingSourcePath ? 'var(--accent)' : 'var(--text2)',
+          padding: '3px 7px'
         }}
       >
         ⇄
-        {!compact &&
-          (pairingSourcePath
-            ? ` SrcPair ${pairingSourcePath.split(/[\\/]/).pop()}`
-            : ' Set SrcPair')}
       </button>
 
+      <ToolSep />
+
+      {/* AI + Theme */}
       {hasAnyFile && (
         <ActionButton
           active={aiPanelOpen}
           icon={<IcoSparkle size={11} stroke="currentColor" />}
-          label=" AI แปล"
+          label=""
           title="AI Translate"
           onClick={onToggleAi}
           compact={compact}
         />
       )}
+      <ActionButton
+        active={false}
+        icon={theme === 'dark' ? '○' : '●'}
+        label=""
+        title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+        onClick={onToggleTheme}
+        compact={compact}
+      />
+      <button
+        onClick={onCycleFont}
+        title={`Font: ${fontLabel} — click to cycle`}
+        style={{
+          ...s.badge,
+          cursor: 'pointer',
+          border: '1px solid transparent',
+          background: 'none',
+          color: 'var(--text2)',
+          padding: '3px 7px',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 10
+        }}
+      >
+        {fontLabel}
+      </button>
+
       {saving && <span style={{ ...s.badge, color: 'var(--hl-teal)' }}>Saving…</span>}
     </div>
   )
@@ -1020,10 +1165,11 @@ const FileLabel = memo(function FileLabel({
             <span
               style={{
                 ...labelSx,
-                color: 'var(--text1)',
+                color: 'var(--text2)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 5
+                gap: 5,
+                opacity: 0.7
               }}
               onClick={onStartRenameSrc}
               title="คลิกเพื่อเปลี่ยนชื่อ"

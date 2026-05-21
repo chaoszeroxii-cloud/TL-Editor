@@ -106,6 +106,7 @@ export interface DualViewProps {
   setLineTone?: (lineIndex: number, tone: ToneName) => void
   getLineVoiceGender?: (lineIndex: number) => VoiceGender
   setLineVoiceGender?: (lineIndex: number, gender: VoiceGender) => void
+  showToneControls?: boolean
 }
 
 // ─── ColHeader ────────────────────────────────────────────────────────────────
@@ -219,7 +220,8 @@ export function DualView({
   getLineTone,
   setLineTone,
   getLineVoiceGender,
-  setLineVoiceGender
+  setLineVoiceGender,
+  showToneControls = false
 }: DualViewProps): JSX.Element {
   // ── Split column ────────────────────────────────────────────────────────────
   const [splitPos, setSplitPos] = useState(50)
@@ -822,9 +824,9 @@ export function DualView({
                 activeMatchIdx={rowFind ? safeActiveIdx : undefined}
                 splitPos={splitPos}
                 tone={currentTone}
-                onToneChange={handleRowToneChange}
+                onToneChange={showToneControls ? handleRowToneChange : undefined}
                 voiceGender={currentVoiceGender}
-                onVoiceGenderChange={handleRowVoiceGenderChange}
+                onVoiceGenderChange={showToneControls ? handleRowVoiceGenderChange : undefined}
                 onPlayRow={handlePlayRow}
               />
             )

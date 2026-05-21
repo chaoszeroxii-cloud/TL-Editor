@@ -47,6 +47,7 @@ export const GlossaryPanel = memo(function GlossaryPanel({
   onSaveDelete
 }: GlossaryPanelProps): JSX.Element {
   const [filter, setFilter] = useState('all')
+  const [expandedType, setExpandedType] = useState<string | null>(null)
   const [fileFilter, setFileFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -309,11 +310,9 @@ export const GlossaryPanel = memo(function GlossaryPanel({
           <span
             style={{
               fontSize: 10,
-              color: 'var(--accent)',
+              color: 'var(--text2)',
               fontFamily: 'var(--font-mono)',
-              background: 'var(--accent-dim)',
-              padding: '1px 5px',
-              borderRadius: 99
+              padding: '1px 5px'
             }}
           >
             {matchCount}
@@ -413,15 +412,20 @@ export const GlossaryPanel = memo(function GlossaryPanel({
             type === 'all' ? glossary.length : glossary.filter((g) => g.type === type).length
           if (type !== 'all' && count === 0) return null
           const short = type.length > 11 ? type.slice(0, 10) + '…' : type
+          const isActive = filter === type
+          const isExpanded = expandedType === type && type !== 'all'
           return (
             <button
               key={type}
-              onClick={() => setFilter(type)}
+              onClick={() => {
+                setFilter(type)
+                setExpandedType(type !== 'all' ? (isExpanded ? null : type) : null)
+              }}
               title={`${type} (${count})`}
               style={{
-                background: filter === type ? 'var(--accent-dim)' : 'none',
-                border: `1px solid ${filter === type ? 'rgba(91,138,240,0.35)' : 'var(--border)'}`,
-                color: filter === type ? 'var(--accent)' : 'var(--text2)',
+                background: isActive ? 'var(--accent-dim)' : 'none',
+                border: `1px solid ${isActive ? 'var(--border)' : 'transparent'}`,
+                color: isActive ? 'var(--text1)' : 'var(--text2)',
                 fontSize: 10,
                 padding: '2px 5px',
                 borderRadius: 4,
@@ -435,6 +439,48 @@ export const GlossaryPanel = memo(function GlossaryPanel({
           )
         })}
       </div>
+
+      {/* Sub-category accordion */}
+      {expandedType &&
+        expandedType !== 'all' &&
+        (() => {
+          const subCats = Array.from(
+            new Set(
+              glossary
+                .filter((g) => g.type === expandedType && g.path && g.path.length > 0)
+                .map((g) => g.path![0])
+            )
+          ).sort()
+          if (subCats.length === 0) return null
+          return (
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 3,
+                padding: '4px 7px 4px 16px',
+                borderBottom: '1px solid var(--border)',
+                background: 'var(--bg0)'
+              }}
+            >
+              {subCats.map((sub) => (
+                <span
+                  key={sub}
+                  style={{
+                    fontSize: 10,
+                    color: 'var(--text2)',
+                    fontFamily: 'var(--font-mono)',
+                    padding: '1px 5px',
+                    borderRadius: 3,
+                    background: 'var(--bg3)'
+                  }}
+                >
+                  {sub}
+                </span>
+              ))}
+            </div>
+          )
+        })()}
 
       {/* File filter */}
       {fileNames.length > 0 && (

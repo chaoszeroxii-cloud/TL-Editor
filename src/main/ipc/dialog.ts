@@ -1,6 +1,7 @@
 import { ipcMain, dialog } from 'electron'
-import { writeFile } from 'fs/promises'
-import { approvePath, approvePaths } from './pathAccess'
+import { stat, writeFile } from 'fs/promises'
+import { resolve } from 'path'
+import { approvePath } from './pathAccess'
 
 export function registerDialogHandlers(): void {
   ipcMain.handle('dialog:openFolder', async () => {
@@ -19,7 +20,16 @@ export function registerDialogHandlers(): void {
   })
 
   ipcMain.handle('approve-paths', async (_e, filePaths?: string[]) => {
-    approvePaths((filePaths ?? []).filter(Boolean))
+    for (const p of (filePaths ?? []).filter(Boolean)) {
+      try {
+        const normalized = resolve(p)
+        const s = await stat(normalized)
+        // Only approve actual files — directories must go through dialog:openFolder
+        if (s.isFile()) approvePath(normalized)
+      } catch {
+        // Path doesn't exist — skip
+      }
+    }
   })
 
   ipcMain.handle('fs:saveFile', async (_e, defaultName: string, content: string) => {

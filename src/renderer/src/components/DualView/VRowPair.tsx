@@ -145,7 +145,7 @@ export const VRowPair = memo(function VRowPair({
       ref={wrapRef}
       data-row-index={rowIndex}
       data-row={rowIndex}
-      style={{ display: 'flex', minHeight: ROW_H, borderBottom: '1px solid rgba(46,51,64,0.5)' }}
+      style={{ display: 'flex', minHeight: ROW_H, borderBottom: '1px solid var(--border)', marginBottom: 2 }}
     >
       <div
         style={{ ...cellStyle, flex: `0 0 ${splitPos}%`, position: 'relative' }}
@@ -208,9 +208,9 @@ export const VRowPair = memo(function VRowPair({
           findRanges={tgtFindRanges}
           activeMatchIdx={activeMatchIdx}
           tone={tone}
-          onToneChange={toneChanged}
+          onToneChange={onToneChange ? toneChanged : undefined}
           voiceGender={voiceGender}
-          onVoiceGenderChange={voiceGenderChanged}
+          onVoiceGenderChange={onVoiceGenderChange ? voiceGenderChanged : undefined}
         />
       </div>
 

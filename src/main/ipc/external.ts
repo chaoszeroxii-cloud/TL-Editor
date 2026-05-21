@@ -274,8 +274,7 @@ export function registerExternalHandlers(): void {
   })
   ipcMain.handle('cancel-mp3-to-mp4', () => {
     cancelMp4ConversionRequested = true
-    if (!activeMp4Conversion) return false
-    activeMp4Conversion.kill()
+    activeMp4Conversion?.kill()
     return true
   })
   // ── Google Translate (via Electron net to bypass renderer CSP) ────────────
@@ -350,7 +349,9 @@ export function registerExternalHandlers(): void {
             messages,
             temperature: 0.3,
             max_tokens: 15000,
-            provider: { order: ['DeepSeek'], allow_fallbacks: false }
+            ...(model.startsWith('deepseek/')
+              ? { provider: { order: ['DeepSeek'], allow_fallbacks: false } }
+              : {})
           })
 
           const timeoutHandle = setTimeout(() => {
@@ -540,129 +541,68 @@ export function registerExternalHandlers(): void {
       )
       const apiKey = options?.apiKey || ''
 
+      // Build payload for streaming endpoint
+      const payload = JSON.stringify({
+        text,
+        bf_lib: options?.bf_lib || {},
+        at_lib: options?.at_lib || {},
+        rate: options?.rate || '+35%',
+        voice_gender: options?.voiceGender || 'Female',
+        voice_name: options?.voiceName || null,
+        lang: 'th'
+      })
+
       return new Promise<{ requestId: string; data: string }>((resolve, reject) => {
-        const wsUrl = new URL(apiUrl)
-        wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:'
-        wsUrl.pathname = '/ws/stream'
-        wsUrl.search = ''
-        wsUrl.hash = ''
-
-        const WS = (globalThis as typeof globalThis & { WebSocket?: any }).WebSocket
-        if (!WS) {
-          reject(new Error('WebSocket is not available in main process'))
-          return
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json'
         }
+        if (apiKey) headers['x-api-key'] = apiKey
 
-        const socket = new WS(wsUrl.toString())
-        const audioChunks: Buffer[] = []
-        let finished = false
+        const req = net.request({
+          method: 'POST',
+          url: `${apiUrl}/stream`,
+          headers
+        })
 
-        const cleanup = (): void => {
+        const chunks: Buffer[] = []
+
+        emitTtsProgress({ phase: 'starting', current: 0, total: 1, percent: 0, requestId })
+
+        req.on('response', (res) => {
+          res.on('data', (chunk: Buffer) => chunks.push(chunk))
+          res.on('end', () => {
+            removeActiveRequest(requestId)
+            const status = res.statusCode ?? 0
+            if (status >= 400) {
+              const msg = Buffer.concat(chunks).toString().slice(0, 300)
+              const err = new Error(`TTS streaming ${status}: ${msg}`)
+              logError('tts-stream', err, { requestId, status })
+              return reject(err)
+            }
+            emitTtsProgress({ phase: 'done', current: 1, total: 1, percent: 100, requestId })
+            resolve({ requestId, data: Buffer.concat(chunks).toString('base64') })
+          })
+        })
+
+        req.on('error', (err) => {
           removeActiveRequest(requestId)
-        }
-
-        const fail = (error: Error): void => {
-          if (finished) return
-          finished = true
-          cleanup()
+          const error = err instanceof Error ? err : new Error(String(err))
           logError('tts-stream', error, { requestId, text: text.slice(0, 50) })
           reject(error)
-        }
-
-        socket.addEventListener('open', () => {
-          const payload = {
-            text,
-            bf_lib: options?.bf_lib || {},
-            at_lib: options?.at_lib || {},
-            rate: options?.rate || '+35%',
-            voice_gender: options?.voiceGender || 'Female',
-            voice_name: options?.voiceName || null,
-            lang: 'th',
-            api_key: apiKey || undefined
-          }
-          socket.send(JSON.stringify(payload))
         })
 
-        socket.addEventListener('message', async (event: any) => {
-          try {
-            if (typeof event.data === 'string') {
-              if (event.data === 'END') {
-                if (finished) return
-                finished = true
-                emitTtsProgress({
-                  phase: 'done',
-                  current: 1,
-                  total: 1,
-                  percent: 100,
-                  requestId
-                })
-                cleanup()
-                resolve({ requestId, data: Buffer.concat(audioChunks).toString('base64') })
-                socket.close()
-                return
-              }
-              if (event.data.startsWith('ERROR:')) {
-                fail(new Error(event.data.slice(6).trim()))
-                socket.close()
-                return
-              }
-              try {
-                const parsed = JSON.parse(event.data) as {
-                  type?: string
-                  phase?: 'starting' | 'progress' | 'completed'
-                  current?: number
-                  total?: number
-                  percent?: number
-                }
-                if (parsed.type === 'progress') {
-                  emitTtsProgress({
-                    phase:
-                      parsed.phase === 'completed'
-                        ? 'completed'
-                        : parsed.phase === 'progress'
-                          ? 'progress'
-                          : 'starting',
-                    current: parsed.current ?? 0,
-                    total: parsed.total ?? 0,
-                    percent: parsed.percent ?? 0,
-                    requestId
-                  })
-                }
-              } catch {
-                // ignore non-progress text messages
-              }
-              return
-            }
-
-            if (event.data instanceof ArrayBuffer) {
-              audioChunks.push(Buffer.from(event.data))
-              return
-            }
-
-            if (typeof Blob !== 'undefined' && event.data instanceof Blob) {
-              const arrayBuffer = await event.data.arrayBuffer()
-              audioChunks.push(Buffer.from(arrayBuffer))
-            }
-          } catch (error) {
-            fail(error instanceof Error ? error : new Error(String(error)))
-          }
+        req.on('abort', () => {
+          removeActiveRequest(requestId)
+          const err = new Error('TTS streaming request cancelled')
+          logError('tts-stream', err, { requestId })
+          reject(err)
         })
 
-        socket.addEventListener('error', () => {
-          fail(new Error('TTS WebSocket connection failed'))
-        })
+        // Track this request for cancellation (no timeout)
+        activeRequests.set(requestId, { req, timeoutHandle: null })
 
-        socket.addEventListener('close', () => {
-          if (!finished) {
-            fail(new Error('TTS streaming connection closed unexpectedly'))
-          }
-        })
-
-        const reqWrapper = {
-          abort: () => socket.close(),
-          destroy: () => socket.close()
-        } as unknown as ClientRequest
-        activeRequests.set(requestId, { req: reqWrapper, timeoutHandle: null })
+        req.write(payload)
+        req.end()
       })
     }
   )
@@ -824,17 +764,15 @@ export function registerExternalHandlers(): void {
               '-r',
               '10',
               '-c:v',
-              'h264_nvenc',
+              'libx264',
               '-preset',
-              'p4',
+              'ultrafast',
+              '-crf',
+              '51',
               '-pix_fmt',
               'yuv420p',
               '-acodec',
               'copy',
-              '-b:a',
-              '256k',
-              '-strict',
-              'experimental',
               '-y',
               '-shortest',
               targetPath

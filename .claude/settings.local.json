@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Skill(grill-me)",
+      "Skill(grill-me:*)",
+      "Bash(npm install *)",
+      "Bash(400)",
+      "Bash(500\")"
+    ]
+  }
+}
