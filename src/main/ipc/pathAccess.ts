@@ -42,7 +42,7 @@ export function approveConfigPaths(config: {
 export function assertPathAllowed(target: string): string {
   const normalized = normalizeTarget(target)
   for (const approved of approvedPaths) {
-    if (isWithin(approved, normalized) || isWithin(normalized, approved)) {
+    if (isWithin(approved, normalized)) {
       return normalized
     }
   }

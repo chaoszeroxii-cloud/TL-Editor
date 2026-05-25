@@ -246,7 +246,6 @@ export function useFileStore(): FileStore {
       _setTgtPath(path)
       _setTgtContent(content)
       setIsDirty(false)
-      setSrcIsDirty(false)
       setActiveRow(-1)
       tgtUndoStack.current = []
       tgtRedoStack.current = []

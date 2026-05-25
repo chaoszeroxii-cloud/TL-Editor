@@ -253,6 +253,7 @@ export function DualView({
   const [translatePopup, setTranslatePopup] = useState<TranslatePopupState | null>(null)
   const [ttsBlobUrl, setTtsBlobUrl] = useState<string | null>(null)
   const [ttsLoading, setTtsLoading] = useState(false)
+  const [ttsError, setTtsError] = useState<string | null>(null)
   const [ttsBytes, setTtsBytes] = useState<Uint8Array | null>(null)
   const [ttsBase64, setTtsBase64] = useState<string | null>(null)
 
@@ -289,6 +290,7 @@ export function DualView({
     async (text: string, rowIndex?: number | null) => {
       if (ttsLoading) return
       setTtsLoading(true)
+      setTtsError(null)
       setTtsBlobUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev)
         return null
@@ -314,7 +316,10 @@ export function DualView({
           const apiUrl = (ttsConfig.apiUrl || 'https://novelttsapi.onrender.com').trim()
           const response = await fetch(`${apiUrl}/generate`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...(ttsConfig?.apiKey ? { Authorization: `Bearer ${ttsConfig.apiKey}` } : {})
+            },
             body: JSON.stringify({
               text: processed,
               bf_lib: filteredBfLib,
@@ -351,6 +356,7 @@ export function DualView({
         }
       } catch (e) {
         console.error('TTS failed:', e)
+        setTtsError(e instanceof Error ? e.message : 'TTS ล้มเหลว')
       } finally {
         setTtsLoading(false)
       }
@@ -632,7 +638,7 @@ export function DualView({
       rows[rowIdx - 1] = prevText + currentText
       rows.splice(rowIdx, 1)
       onTgtChange(rows.join('\n'))
-      setPendingCursor(prevText.length - 1)
+      setPendingCursor(prevText.length)
       setNavCol(null)
       setNavDir(null)
       setFocusAtStart(false)
@@ -678,7 +684,7 @@ export function DualView({
       rows[rowIdx - 1] = prevText + currentText
       rows.splice(rowIdx, 1)
       onSrcChange?.(rows.join('\n'))
-      setPendingCursor(prevText.length - 1)
+      setPendingCursor(prevText.length)
       setNavCol(null)
       setNavDir(null)
       setFocusAtStart(false)
@@ -851,6 +857,34 @@ export function DualView({
       )}
       {translatePopup && (
         <TranslatePopup popup={translatePopup} onClose={() => setTranslatePopup(null)} />
+      )}
+
+      {ttsError && !ttsLoading && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 8,
+            right: 12,
+            background: 'var(--bg2)',
+            border: '1px solid var(--hl-coral)',
+            borderRadius: 6,
+            padding: '5px 12px',
+            fontSize: 11,
+            color: 'var(--hl-coral)',
+            fontFamily: 'var(--font-mono)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+            zIndex: 9000,
+            maxWidth: 360,
+            cursor: 'pointer'
+          }}
+          onClick={() => setTtsError(null)}
+          title="คลิกเพื่อปิด"
+        >
+          ⚠ TTS: {ttsError}
+        </div>
       )}
 
       {ttsLoading && (
