@@ -2,12 +2,6 @@ import { JSX } from 'react'
 import type { PendingEntry } from './extractNewEntries'
 import { IcoChevronDown as IcoChevDown, IcoChevronUp as IcoChevUp, IcoCheck } from '../common/icons'
 
-const TYPE_COLOR: Record<string, string> = {
-  person: 'var(--hl-gold)',
-  place: 'var(--hl-teal)',
-  term: 'var(--hl-coral)',
-  other: 'var(--hl-other)'
-}
 
 export interface NewEntryReviewProps {
   pendingEntries: PendingEntry[]
@@ -15,10 +9,8 @@ export interface NewEntryReviewProps {
   addDone: boolean
   addTargetFile: string
   fileNames: string[]
-  availableTypes: string[]
   onToggleShow: () => void
   onToggleEntry: (i: number) => void
-  onSetType: (i: number, type: string) => void
   onSetTargetFile: (file: string) => void
   onSelectAll: () => void
   onSelectNone: () => void
@@ -32,10 +24,8 @@ export function NewEntryReview({
   addDone,
   addTargetFile,
   fileNames,
-  availableTypes,
   onToggleShow,
   onToggleEntry,
-  onSetType,
   onSetTargetFile,
   onSelectAll,
   onSelectNone,
@@ -92,25 +82,23 @@ export function NewEntryReview({
                 />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={s.eSrc}>{e.src}</div>
-                  <div style={s.eTh}>{e.th}</div>
+                  <div style={s.eTh}>
+                    {e.th}
+                    {e.alt && e.alt.length > 0 && (
+                      <span style={s.altChip}> / {e.alt.join(' / ')}</span>
+                    )}
+                  </div>
                   {e.note && <div style={s.eNote}>{e.note}</div>}
+                  {e.path && e.path.length > 0 && (
+                    <div style={s.pathChips}>
+                      {e.path.map((seg, si) => (
+                        <span key={si} style={s.pathSeg}>
+                          {seg}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <select
-                  value={e.type}
-                  onChange={(ev) => onSetType(i, ev.target.value)}
-                  disabled={addDone}
-                  style={{
-                    ...s.typeSelect,
-                    color: TYPE_COLOR[e.type] ?? 'var(--hl-coral)',
-                    borderColor: `${TYPE_COLOR[e.type] ?? 'var(--hl-coral)'}50`
-                  }}
-                >
-                  {availableTypes.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
               </div>
             ))}
           </div>
@@ -252,18 +240,16 @@ const s: Record<string, React.CSSProperties> = {
     lineHeight: 1.4,
     fontFamily: 'var(--font-mono)'
   },
-  typeSelect: {
-    background: 'var(--bg3)',
-    border: '1px solid',
-    borderRadius: 99,
+  altChip: { fontSize: 10, color: 'var(--text2)' },
+  pathChips: { display: 'flex', gap: 3, flexWrap: 'wrap' as const, marginTop: 3 },
+  pathSeg: {
     fontSize: 9,
-    padding: '2px 5px',
-    outline: 'none',
-    fontFamily: 'var(--font-mono)',
-    cursor: 'pointer',
-    flexShrink: 0,
-    alignSelf: 'flex-start',
-    fontWeight: 600
+    color: 'var(--hl-teal)',
+    background: 'var(--hl-teal-bg)',
+    border: '1px solid var(--hl-teal-border)',
+    borderRadius: 3,
+    padding: '1px 5px',
+    fontFamily: 'var(--font-mono)'
   },
   selBtn: {
     background: 'none',

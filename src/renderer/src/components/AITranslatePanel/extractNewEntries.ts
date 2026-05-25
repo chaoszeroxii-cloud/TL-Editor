@@ -6,8 +6,9 @@
 export interface PendingEntry {
   src: string
   th: string
+  alt?: string[]
   note?: string
-  type: string
+  path?: string[]
   selected: boolean
 }
 
@@ -36,7 +37,7 @@ export function extractNewEntries(text: string): { cleaned: string; entries: Pen
         }
 
         if (th.trim()) {
-          entries.push({ src: src.trim(), th: th.trim(), note, type: 'term', selected: true })
+          entries.push({ src: src.trim(), th: th.trim(), note, selected: true })
         }
       }
     } catch {

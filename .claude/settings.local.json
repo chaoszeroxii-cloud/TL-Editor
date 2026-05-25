@@ -6,7 +6,11 @@
       "Skill(grill-me:*)",
       "Bash(npm install *)",
       "Bash(400)",
-      "Bash(500\")"
+      "Bash(500\")",
+      "WebFetch(domain:openrouter.ai)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:gist.github.com)"
     ]
   }
 }

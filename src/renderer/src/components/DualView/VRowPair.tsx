@@ -45,6 +45,7 @@ export interface VRowPairProps {
   voiceGender?: VoiceGender
   onVoiceGenderChange?: (rowIdx: number, gender: VoiceGender) => void
   onPlayRow?: (rowIndex: number, text: string) => void
+  flagNote?: string
 }
 
 export const VRowPair = memo(function VRowPair({
@@ -87,7 +88,8 @@ export const VRowPair = memo(function VRowPair({
   onToneChange,
   voiceGender = 'female',
   onVoiceGenderChange,
-  onPlayRow
+  onPlayRow,
+  flagNote
 }: VRowPairProps): JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null)
   const [tgtHovered, setTgtHovered] = useState(false)
@@ -145,7 +147,15 @@ export const VRowPair = memo(function VRowPair({
       ref={wrapRef}
       data-row-index={rowIndex}
       data-row={rowIndex}
-      style={{ display: 'flex', minHeight: ROW_H, borderBottom: '1px solid var(--border)', marginBottom: 2 }}
+      title={flagNote}
+      style={{
+        display: 'flex',
+        minHeight: ROW_H,
+        borderBottom: '1px solid var(--border)',
+        marginBottom: 2,
+        borderLeft: flagNote ? '3px solid var(--hl-gold)' : undefined,
+        background: flagNote ? 'rgba(184,154,80,0.04)' : undefined
+      }}
     >
       <div
         style={{ ...cellStyle, flex: `0 0 ${splitPos}%`, position: 'relative' }}

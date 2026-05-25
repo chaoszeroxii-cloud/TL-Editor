@@ -435,6 +435,10 @@ export default function App(): JSX.Element {
     [files]
   )
 
+  // ── Flag uncertain rows from AI ──────────────────────────────────────────
+  const [flaggedRows, setFlaggedRows] = useState<Map<number, string>>(new Map())
+  const handleFlagLines = useCallback((rows: Map<number, string>) => setFlaggedRows(rows), [])
+
   // ── Send selected text to Paraphrase tab ─────────────────────────────────
   const [paraphraseInput, setParaphraseInput] = useState<string | null>(null)
 
@@ -604,6 +608,7 @@ export default function App(): JSX.Element {
                   getLineVoiceGender={(idx) => files.getLineVoiceGender(idx) as VoiceGender}
                   setLineVoiceGender={files.setLineVoiceGender}
                   showToneControls={showToneControls}
+                  flaggedRows={flaggedRows}
                 />
               </ErrorBoundary>
             </>
@@ -651,6 +656,7 @@ export default function App(): JSX.Element {
               onPushParaphrase={handlePushParaphrase}
               paraphraseInput={paraphraseInput}
               onParaphraseInputConsumed={() => setParaphraseInput(null)}
+              onFlagLines={handleFlagLines}
               profileActive={app.styleProfileOpen}
               onSelectWorkTab={handleSelectAiWorkTab}
               onSelectProfileTab={handleSelectAiProfileTab}

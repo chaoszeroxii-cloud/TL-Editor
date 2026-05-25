@@ -12,12 +12,91 @@ import { IcoSparkle, IcoFile, IcoKey, IcoX } from '../common/icons'
 import type { StyleProfile } from '../StyleProfile/types'
 import { parseGlossaryFile } from '../../utils/glossaryParsers'
 
+interface ToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
 interface OpenRouterResponse {
   choices: {
     message: {
-      content: string
+      content: string | null
+      tool_calls?: ToolCall[]
     }
   }[]
+}
+
+const PROPOSE_TERM_TOOL = {
+  type: 'function',
+  function: {
+    name: 'propose_term',
+    description:
+      'Propose a new glossary term encountered in the source text that is not already in the glossary.',
+    parameters: {
+      type: 'object',
+      properties: {
+        src: { type: 'string', description: 'The original-language term' },
+        th: { type: 'string', description: 'Primary Thai translation' },
+        alt: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Alternative Thai translations (if the term has multiple valid forms)'
+        },
+        path: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Sub-path hierarchy for categorization, e.g. ["Characters", "Heroes"]'
+        },
+        note: { type: 'string', description: 'Optional usage note or context' }
+      },
+      required: ['src', 'th']
+    }
+  }
+}
+
+const FLAG_UNCERTAIN_TOOL = {
+  type: 'function',
+  function: {
+    name: 'flag_uncertain',
+    description:
+      'Flag specific lines of the translation output as uncertain or needing human review.',
+    parameters: {
+      type: 'object',
+      properties: {
+        lines: {
+          type: 'array',
+          items: { type: 'number' },
+          description: '1-based line numbers in the translation output that are uncertain'
+        },
+        note: { type: 'string', description: 'Reason for uncertainty' }
+      },
+      required: ['lines', 'note']
+    }
+  }
+}
+
+const SET_STYLE_TOOL = {
+  type: 'function',
+  function: {
+    name: 'set_style',
+    description: 'Record the narrative tone and translator style observations for this chapter.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tone: {
+          type: 'string',
+          description: 'Overall narrative tone: dramatic, comedic, action, romantic, suspense, etc.'
+        },
+        notes: {
+          type: 'string',
+          description:
+            'Style observations for the translator: character speech patterns, register, vocabulary preferences, recurring motifs'
+        }
+      },
+      required: ['tone', 'notes']
+    }
+  }
 }
 
 export interface AITranslateConfig {
@@ -69,11 +148,15 @@ interface AITranslatePanelProps {
   profileActive?: boolean
   onSelectWorkTab?: () => void
   onSelectProfileTab?: () => void
+  onFlagLines?: (rows: Map<number, string>) => void
 }
 
 type PanelTab = 'translate' | 'paraphrase' | 'profile'
 
-const BASE_TYPES = ['person', 'place', 'term', 'other']
+interface StyleNote {
+  tone: string
+  notes: string
+}
 
 const MODELS = [
   { id: 'deepseek/deepseek-v4-pro', label: 'V4 Pro' },
@@ -154,7 +237,8 @@ export function AITranslatePanel({
   profilePanel,
   profileActive = false,
   onSelectWorkTab,
-  onSelectProfileTab
+  onSelectProfileTab,
+  onFlagLines
 }: AITranslatePanelProps): JSX.Element {
   const [activeTab, setActiveTab] = useState<PanelTab>('translate')
 
@@ -175,11 +259,28 @@ export function AITranslatePanel({
   const [addDone, setAddDone] = useState(false)
   const [rawTranslated, setRawTranslated] = useState<string | null>(null)
   const [showRaw, setShowRaw] = useState(false)
+  const [styleNote, setStyleNote] = useState<StyleNote | null>(null)
+  const [applyStyleNote, setApplyStyleNote] = useState(true)
+  const [saveStyleNote, setSaveStyleNote] = useState(true)
 
   const fileNames = Object.keys(sourceFilePaths)
-  const availableTypes = [
-    ...new Set([...BASE_TYPES, ...glossary.map((g) => g.type).filter(Boolean)])
-  ].sort()
+
+  // ── Style note persistence (per-folder, localStorage) ──────────────────
+  const storageKey = useMemo(() => {
+    const firstPath = Object.values(sourceFilePaths)[0]
+    if (!firstPath) return 'style-note:default'
+    return `style-note:${firstPath.replace(/[\\/][^\\/]*$/, '')}`
+  }, [sourceFilePaths])
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(storageKey)
+      if (saved) setStyleNote(JSON.parse(saved) as StyleNote)
+      else setStyleNote(null)
+    } catch {
+      /* ignore */
+    }
+  }, [storageKey])
 
   // ── Glossary file dropdown ──────────────────────────────────────────────
   const [glossDropdownOpen, setGlossDropdownOpen] = useState(false)
@@ -277,6 +378,7 @@ export function AITranslatePanel({
   }
   const handleTranslate = useCallback(async (): Promise<void> => {
     if (!apiKey.trim() || !srcContent.trim()) return
+    const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2)}`
     abortRef.current = new AbortController()
     setStatus('loading')
     setStatusMsg('กำลังโหลด prompt และ glossary…')
@@ -285,6 +387,15 @@ export function AITranslatePanel({
     setShowEntries(false)
     setRawTranslated(null)
     setShowRaw(false)
+    setNetworkRequestId(requestId)
+
+    let streamedText = ''
+    const handleChunk = (...args: unknown[]): void => {
+      const { delta } = args[1] as { requestId: string; delta: string }
+      streamedText += delta
+      onResult(streamedText)
+    }
+    window.electron.on('openrouter-stream-chunk', handleChunk)
 
     try {
       let prompt = 'แปลนิยายตอนนี้จาก [ภาษาต้นทาง] เป็น [ภาษาไทย]'
@@ -295,6 +406,8 @@ export function AITranslatePanel({
           /* default */
         }
       }
+
+      const toolInstructions = `\n\n## การใช้ Tools\n- เมื่อพบชื่อเฉพาะ ชื่อตัวละคร ชื่อสถานที่ หรือคำศัพท์เฉพาะที่ไม่มีใน glossary ให้ใช้ tool \`propose_term\` เสนอคำนั้นพร้อมคำแปลภาษาไทย\n- เมื่อแปลบรรทัดใดไม่มั่นใจให้ใช้ tool \`flag_uncertain\` ระบุเลขบรรทัดและเหตุผล\n- หลังแปลเสร็จให้ใช้ tool \`set_style\` บันทึก tone และลักษณะการเขียนของบทนี้`
 
       let glossaryText = ''
       if (glossaryPath) {
@@ -317,8 +430,18 @@ export function AITranslatePanel({
         }
       }
 
+      // Read persisted style note from localStorage (written by set_style in a previous chapter)
+      const persistedStyle = (() => {
+        try { return JSON.parse(localStorage.getItem(storageKey) ?? 'null') as StyleNote | null }
+        catch { return null }
+      })()
+
       const systemMsg = [
         prompt,
+        toolInstructions,
+        applyStyleNote && persistedStyle
+          ? `\n\n## Style Notes (Previous Chapter)\nTone: ${persistedStyle.tone}\n${persistedStyle.notes}`
+          : '',
         stylePromptSnippet ? `\n\n## Translator Style Guide\n${stylePromptSnippet}` : '',
         glossaryText ? `\n\n## Glossary (JSON)\n\`\`\`json\n${glossaryText}\n\`\`\`` : ''
       ]
@@ -333,12 +456,13 @@ export function AITranslatePanel({
         messages: [
           { role: 'system', content: systemMsg },
           { role: 'user', content: srcContent }
-        ]
+        ],
+        tools: [PROPOSE_TERM_TOOL, FLAG_UNCERTAIN_TOOL, SET_STYLE_TOOL],
+        stream: true,
+        requestId
       })
 
-      // Extract requestId and data from unified response format
-      const { requestId, data: rawJson } = response as { requestId: string; data: string }
-      setNetworkRequestId(requestId)
+      const { data: rawJson } = response as { requestId: string; data: string }
 
       let data: unknown
       try {
@@ -346,21 +470,88 @@ export function AITranslatePanel({
       } catch {
         throw new Error(`OpenRouter ส่งข้อมูลที่ parse ไม่ได้: ${String(rawJson).slice(0, 120)}`)
       }
-      const translated: string = (data as OpenRouterResponse).choices?.[0]?.message?.content ?? ''
-      if (!translated) throw new Error('ไม่ได้รับข้อความตอบกลับ')
+      const msg = (data as OpenRouterResponse).choices?.[0]?.message
+      const translated: string = msg?.content ?? ''
+      if (!translated && !msg?.tool_calls?.length) throw new Error('ไม่ได้รับข้อความตอบกลับ')
 
-      const { cleaned, entries } = extractNewEntries(translated)
-      setRawTranslated(translated)
+      // Parse tool_calls
+      const toolEntries: typeof pendingEntries = []
+      const newFlaggedRows = new Map<number, string>()
+      let newStyleNote: StyleNote | null = null
+
+      for (const tc of msg?.tool_calls ?? []) {
+        try {
+          if (tc.function.name === 'propose_term') {
+            const args = JSON.parse(tc.function.arguments) as {
+              src: string
+              th: string
+              alt?: string[]
+              path?: string[]
+              note?: string
+            }
+            if (args.src && args.th) {
+              toolEntries.push({
+                src: args.src.trim(),
+                th: args.th.trim(),
+                alt: Array.isArray(args.alt) ? args.alt.map((a) => a.trim()).filter(Boolean) : undefined,
+                path: Array.isArray(args.path) ? args.path : undefined,
+                note: args.note,
+                selected: true
+              })
+            }
+          } else if (tc.function.name === 'flag_uncertain') {
+            const args = JSON.parse(tc.function.arguments) as { lines: number[]; note: string }
+            if (Array.isArray(args.lines)) {
+              for (const ln of args.lines) newFlaggedRows.set(ln - 1, args.note ?? '')
+            }
+          } else if (tc.function.name === 'set_style') {
+            const args = JSON.parse(tc.function.arguments) as { tone: string; notes: string }
+            if (args.tone || args.notes) {
+              newStyleNote = { tone: args.tone, notes: args.notes }
+              if (saveStyleNote) {
+                try { localStorage.setItem(storageKey, JSON.stringify(newStyleNote)) } catch { /* ignore */ }
+              }
+            }
+          }
+        } catch {
+          /* skip malformed tool call */
+        }
+      }
+
+      if (newFlaggedRows.size > 0) onFlagLines?.(newFlaggedRows)
+      if (newStyleNote) setStyleNote(newStyleNote)
+
+      // Fall back to JSON-block extraction when model doesn't use tool calling
+      const { cleaned, entries: jsonEntries } = extractNewEntries(translated)
+      const allEntries = toolEntries.length > 0 ? toolEntries : jsonEntries
+
+      // Replace streamed raw content with cleaned version (removes New_Entry blocks)
+      onResult(cleaned)
+      setRawTranslated(translated || streamedText)
       setStatus('done')
       setStatusMsg(
-        `แปลสำเร็จ — ${cleaned.split('\n').length} บรรทัด${entries.length > 0 ? ` · ✨ ${entries.length} entries ใหม่` : ''}`
+        `แปลสำเร็จ — ${cleaned.split('\n').length} บรรทัด${allEntries.length > 0 ? ` · ✨ ${allEntries.length} entries ใหม่` : ''}`
       )
-      onResult(cleaned)
 
-      if (entries.length > 0) {
-        setPendingEntries(entries)
+      if (allEntries.length > 0) {
+        const targetFile = glossaryPath && glossaryPath !== '__all__' ? glossaryPath : (fileNames[0] ?? '')
+        setPendingEntries(allEntries)
         setShowEntries(true)
-        setAddTargetFile(fileNames[0] ?? '')
+        setAddTargetFile(targetFile)
+
+        if (onAddEntries && targetFile) {
+          const entriesToAdd: GlossaryEntry[] = allEntries.map((e) => ({
+            src: e.src,
+            th: e.th,
+            alt: e.alt,
+            note: e.note,
+            path: e.path,
+            type: 'term' as const,
+            _file: targetFile || undefined
+          }))
+          onAddEntries(entriesToAdd, targetFile)
+          setAddDone(true)
+        }
       }
     } catch (e: unknown) {
       if ((e as Error).name === 'AbortError') {
@@ -372,6 +563,8 @@ export function AITranslatePanel({
       setStatus('error')
       setStatusMsg(String(e))
       setNetworkRequestId(null)
+    } finally {
+      window.electron.off('openrouter-stream-chunk', handleChunk)
     }
   }, [
     apiKey,
@@ -384,7 +577,9 @@ export function AITranslatePanel({
     stylePromptSnippet,
     filteredGlossary,
     matchEntry,
-    sourceFilePaths
+    sourceFilePaths,
+    storageKey,
+    onFlagLines
   ])
 
   const handleAddSelected = useCallback((): void => {
@@ -393,8 +588,10 @@ export function AITranslatePanel({
     const entries: GlossaryEntry[] = selected.map((e) => ({
       src: e.src,
       th: e.th,
+      alt: e.alt,
       note: e.note,
-      type: e.type,
+      path: e.path,
+      type: 'term',
       _file: addTargetFile || undefined
     }))
     onAddEntries(entries, addTargetFile)
@@ -834,6 +1031,46 @@ export function AITranslatePanel({
               </div>
             )}
 
+            <div style={{ display: 'flex', gap: 10 }}>
+              <label style={s.toggleLabel}>
+                <input
+                  type="checkbox"
+                  checked={applyStyleNote}
+                  onChange={(e) => setApplyStyleNote(e.target.checked)}
+                  style={{ accentColor: 'var(--accent)', margin: 0 }}
+                />
+                ใช้ style บทก่อน
+              </label>
+              <label style={s.toggleLabel}>
+                <input
+                  type="checkbox"
+                  checked={saveStyleNote}
+                  onChange={(e) => setSaveStyleNote(e.target.checked)}
+                  style={{ accentColor: 'var(--accent)', margin: 0 }}
+                />
+                บันทึก style ใหม่
+              </label>
+            </div>
+
+            {styleNote && applyStyleNote && (
+              <div style={s.styleNoteBox}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={s.styleNoteTone}>{styleNote.tone}</span>
+                  <button
+                    onClick={() => {
+                      setStyleNote(null)
+                      try { localStorage.removeItem(storageKey) } catch { /* ignore */ }
+                    }}
+                    style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text2)', fontSize: 10, padding: '0 2px' }}
+                    title="ล้าง style note"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div style={s.styleNoteText}>{styleNote.notes}</div>
+              </div>
+            )}
+
             <div style={s.btnRow}>
               {status === 'loading' ? (
                 <button
@@ -950,15 +1187,11 @@ export function AITranslatePanel({
                 addDone={addDone}
                 addTargetFile={addTargetFile}
                 fileNames={fileNames}
-                availableTypes={availableTypes}
                 onToggleShow={() => setShowEntries((v) => !v)}
                 onToggleEntry={(i) =>
                   setPendingEntries((prev) =>
                     prev.map((e, j) => (j === i ? { ...e, selected: !e.selected } : e))
                   )
-                }
-                onSetType={(i, type) =>
-                  setPendingEntries((prev) => prev.map((e, j) => (j === i ? { ...e, type } : e)))
                 }
                 onSetTargetFile={setAddTargetFile}
                 onSelectAll={() =>
@@ -1155,6 +1388,38 @@ const s: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6
+  },
+  toggleLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 5,
+    fontSize: 10,
+    color: 'var(--text2)',
+    fontFamily: 'var(--font-mono)',
+    cursor: 'pointer',
+    userSelect: 'none' as const
+  },
+  styleNoteBox: {
+    background: 'var(--accent-dim)',
+    border: '1px solid rgba(88,120,200,0.25)',
+    borderRadius: 6,
+    padding: '7px 9px',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 4
+  },
+  styleNoteTone: {
+    fontSize: 9,
+    fontFamily: 'var(--font-mono)',
+    color: 'var(--accent)',
+    fontWeight: 600,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase' as const
+  },
+  styleNoteText: {
+    fontSize: 10,
+    color: 'var(--text1)',
+    lineHeight: 1.5
   },
   btnCancel: {
     flex: 1,

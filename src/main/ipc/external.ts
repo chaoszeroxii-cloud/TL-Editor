@@ -328,37 +328,170 @@ export function registerExternalHandlers(): void {
   // ── OpenRouter chat completion (with abort support) ────────────────────────
   ipcMain.handle(
     'openrouter-chat',
-    (
-      _e,
+    async (
+      e,
       {
         apiKey,
         messages,
-        model
+        model,
+        tools,
+        stream: useStream,
+        requestId: clientRequestId
       }: {
         apiKey: string
         model: string
         messages: { role: string; content: string }[]
+        tools?: object[]
+        stream?: boolean
+        requestId?: string
       }
     ) => {
-      const requestId = generateRequestId()
-      return new Promise<{ requestId: string; data: string }>((resolve, reject) => {
+      const requestId = clientRequestId ?? generateRequestId()
+      const timeout = 600_000
+
+      const body = JSON.stringify({
+        model,
+        messages,
+        temperature: 0.3,
+        max_tokens: 15000,
+        ...(useStream ? { stream: true } : {}),
+        ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
+        ...(model.startsWith('deepseek/')
+          ? { provider: { order: ['DeepSeek'], allow_fallbacks: false } }
+          : {})
+      })
+
+      // ── SSE streaming via net.fetch (ReadableStream) ──────────────────────
+      if (useStream) {
+        const controller = new AbortController()
+        const timeoutHandle = setTimeout(() => {
+          controller.abort()
+          removeActiveRequest(requestId)
+        }, timeout)
+
+        activeRequests.set(requestId, {
+          req: { abort: () => controller.abort() } as unknown as ClientRequest,
+          timeoutHandle
+        })
+
         try {
-          const timeout = 600_000 // 10 minutes
-          const body = JSON.stringify({
-            model,
-            messages,
-            temperature: 0.3,
-            max_tokens: 15000,
-            ...(model.startsWith('deepseek/')
-              ? { provider: { order: ['DeepSeek'], allow_fallbacks: false } }
-              : {})
+          const response = await net.fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`,
+              'HTTP-Referer': 'https://tl-editor.local',
+              'X-Title': 'TL/Editor'
+            },
+            body,
+            signal: controller.signal
           })
 
+          if (!response.ok) {
+            const errText = await response.text()
+            throw new Error(`OpenRouter ${response.status}: ${errText.slice(0, 300)}`)
+          }
+
+          const reader = response.body!.getReader()
+          const decoder = new TextDecoder()
+          let sseBuffer = ''
+          let accumulated = ''
+          const toolCallsAccum: Array<{
+            id: string
+            type: string
+            function: { name: string; arguments: string }
+          }> = []
+
+          outer: while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+
+            sseBuffer += decoder.decode(value, { stream: true })
+            const lines = sseBuffer.split('\n')
+            sseBuffer = lines.pop()!
+
+            for (const line of lines) {
+              const trimmed = line.trim()
+              if (!trimmed || trimmed.startsWith(':')) continue
+              if (!trimmed.startsWith('data: ')) continue
+              const payload = trimmed.slice(6).trim()
+              if (payload === '[DONE]') break outer
+
+              try {
+                const obj = JSON.parse(payload) as {
+                  choices?: { delta?: { content?: string; tool_calls?: unknown[] } }[]
+                }
+                const delta = obj.choices?.[0]?.delta
+                if (!delta) continue
+
+                if (typeof delta.content === 'string' && delta.content) {
+                  accumulated += delta.content
+                  if (!e.sender.isDestroyed()) {
+                    e.sender.send('openrouter-stream-chunk', { requestId, delta: delta.content })
+                  }
+                }
+
+                if (Array.isArray(delta.tool_calls)) {
+                  for (const tc of delta.tool_calls as Array<{
+                    index?: number
+                    id?: string
+                    type?: string
+                    function?: { name?: string; arguments?: string }
+                  }>) {
+                    const idx = tc.index ?? 0
+                    if (!toolCallsAccum[idx]) {
+                      toolCallsAccum[idx] = {
+                        id: '',
+                        type: 'function',
+                        function: { name: '', arguments: '' }
+                      }
+                    }
+                    if (tc.id) toolCallsAccum[idx].id = tc.id
+                    if (tc.type) toolCallsAccum[idx].type = tc.type
+                    if (tc.function?.name) toolCallsAccum[idx].function.name = tc.function.name
+                    if (tc.function?.arguments)
+                      toolCallsAccum[idx].function.arguments += tc.function.arguments
+                  }
+                }
+              } catch {
+                /* skip malformed SSE line */
+              }
+            }
+          }
+
+          removeActiveRequest(requestId)
+          return {
+            requestId,
+            data: JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: accumulated || null,
+                    tool_calls:
+                      toolCallsAccum.length > 0
+                        ? toolCallsAccum.filter((tc) => tc.function.name)
+                        : undefined
+                  }
+                }
+              ]
+            })
+          }
+        } catch (err) {
+          removeActiveRequest(requestId)
+          const error = err instanceof Error ? err : new Error(String(err))
+          if (error.name !== 'AbortError') logError('openrouter-chat', error, { requestId, model })
+          throw error
+        }
+      }
+
+      // ── Buffered path (Paraphrase / Style Analyzer) ───────────────────────
+      return new Promise<{ requestId: string; data: string }>((resolve, reject) => {
+        try {
           const timeoutHandle = setTimeout(() => {
             const record = activeRequests.get(requestId)
             if (record) record.req.abort()
             removeActiveRequest(requestId)
-            const err = new Error('OpenRouter request timed out after 5m')
+            const err = new Error('OpenRouter request timed out after 10m')
             logError('openrouter-chat', err, { requestId, model })
             reject(err)
           }, timeout)
@@ -406,9 +539,7 @@ export function registerExternalHandlers(): void {
             reject(err)
           })
 
-          // Track this request for cancellation
           activeRequests.set(requestId, { req, timeoutHandle })
-
           req.write(body)
           req.end()
         } catch (err) {

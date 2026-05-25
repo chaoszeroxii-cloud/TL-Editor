@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
-const eventChannels = new Set(['mp3-to-mp4:progress', 'tts:progress'])
+const eventChannels = new Set(['mp3-to-mp4:progress', 'tts:progress', 'openrouter-stream-chunk'])
 
 contextBridge.exposeInMainWorld('electron', {
   getEnvConfig: () => ipcRenderer.invoke('get-env-config'),

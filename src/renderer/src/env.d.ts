@@ -122,6 +122,9 @@ interface ElectronAPI {
     apiKey: string
     model: string
     messages: { role: string; content: string }[]
+    tools?: object[]
+    stream?: boolean
+    requestId?: string
   }) => Promise<{ requestId: string; data: string }>
 
   // ── TTS APIs ─────────────────────────────────────────────────────────────
