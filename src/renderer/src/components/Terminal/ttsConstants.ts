@@ -2,11 +2,12 @@
 import type { TtsApiConfig } from './TTSApiTab'
 
 export const DEFAULT_TTS_CONFIG: TtsApiConfig = {
-  apiUrl: 'https://novelttsapi.onrender.com',
+  apiUrl: 'https://novelttsapi-0mv2.onrender.com',
   apiKey: '',
   voiceGender: 'female',
   voiceName: '',
   rate: '+35%',
   outputPath: '',
-  useStreaming: true
+  useStreaming: true,
+  playbackVolume: 0.7
 }

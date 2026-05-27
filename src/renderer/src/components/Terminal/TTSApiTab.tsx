@@ -1,6 +1,6 @@
 // ─── TTSApiTab.tsx ─────────────────────────────────────────────────────────
 // TTS API settings panel — replaces PythonTab in TerminalPanel
-// Uses Novel TTS API (https://novelttsapi.onrender.com) with streaming support
+// Uses Novel TTS API (https://novelttsapi-0mv2.onrender.com) with streaming support
 
 import { useState, useRef, JSX, useCallback, useEffect } from 'react'
 import type { GlossaryLibraries } from '../../utils/glossaryLoader'
@@ -18,6 +18,7 @@ export interface TtsApiConfig {
   rate: string
   outputPath: string
   useStreaming?: boolean
+  playbackVolume?: number
 }
 
 interface TTSApiTabProps {
@@ -124,31 +125,19 @@ export function TTSApiTab({
 
     try {
       const testText = 'สวัสดี ทดสอบเสียง TTS API ครับ'
-      const apiUrl = (config.apiUrl || 'https://novelttsapi.onrender.com').trim()
-      const useStreaming = config.useStreaming !== false
+      const apiUrl = (config.apiUrl || 'https://novelttsapi-0mv2.onrender.com').trim()
       // Filter glossaries to only include terms found in test text
       const filteredBfLib = filterUsedGlossariesFromRecord(testText, glossaries?.bf_lib)
       const filteredAtLib = filterUsedGlossariesFromRecord(testText, glossaries?.at_lib)
-      // Call the endpoint via proper window.electron method
-      const response = await (useStreaming
-        ? window.electron.ttsStream(testText, {
-            apiUrl,
-            apiKey: config.apiKey || undefined,
-            voiceGender: config.voiceGender,
-            voiceName: config.voiceName || undefined,
-            rate: config.rate || '+35%',
-            bf_lib: filteredBfLib,
-            at_lib: filteredAtLib
-          })
-        : window.electron.tts(testText, {
-            apiUrl,
-            apiKey: config.apiKey || undefined,
-            voiceGender: config.voiceGender,
-            voiceName: config.voiceName || undefined,
-            rate: config.rate || '+35%',
-            bf_lib: filteredBfLib,
-            at_lib: filteredAtLib
-          }))
+      const response = await window.electron.tts(testText, {
+        apiUrl,
+        apiKey: config.apiKey || undefined,
+        voiceGender: config.voiceGender,
+        voiceName: config.voiceName || undefined,
+        rate: config.rate || '+35%',
+        bf_lib: filteredBfLib,
+        at_lib: filteredAtLib
+      })
 
       // Extract data from response (now returns {requestId, data})
       const base64 = response.data
@@ -189,7 +178,7 @@ export function TTSApiTab({
     const filteredAtLib = filterUsedGlossariesFromRecord(tgtContent, glossaries?.at_lib)
 
     try {
-      const apiUrl = (config.apiUrl || 'https://novelttsapi.onrender.com').trim()
+      const apiUrl = (config.apiUrl || 'https://novelttsapi-0mv2.onrender.com').trim()
       const lines = tgtContent.split('\n').filter((line) => line.trim())
       const ttsLines = lines.map((text, idx) => {
         const toneName = getLineTone(idx)
@@ -287,50 +276,80 @@ export function TTSApiTab({
     }
 
     setTtsStatus('generating')
-    setTtsMsg('กำลังอ่านออกเสียง...')
+    setTtsMsg('กำลังเชื่อมต่อ...')
     setTtsProgress(null)
 
     try {
-      const apiUrl = (config.apiUrl || 'https://novelttsapi.onrender.com').trim()
-      const useStreaming = config.useStreaming !== false
+      const apiUrl = (config.apiUrl || 'https://novelttsapi-0mv2.onrender.com').trim().replace(/\/$/, '')
+      const wsUrl = apiUrl.replace(/^http/, 'ws') + '/ws/stream'
 
-      // Filter glossaries to only include terms found in target content
       const filteredBfLib = filterUsedGlossariesFromRecord(tgtContent, glossaries?.bf_lib)
       const filteredAtLib = filterUsedGlossariesFromRecord(tgtContent, glossaries?.at_lib)
 
-      // Generate audio
-      const response = await (useStreaming
-        ? window.electron.ttsStream(tgtContent, {
-            apiUrl,
-            apiKey: config.apiKey || undefined,
-            voiceGender: config.voiceGender,
-            voiceName: config.voiceName || undefined,
-            rate: config.rate || '+35%',
+      const chunks: ArrayBuffer[] = []
+
+      await new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(wsUrl)
+        ws.binaryType = 'arraybuffer'
+
+        ws.onopen = () => {
+          setTtsMsg('กำลังสร้างเสียง…')
+          ws.send(JSON.stringify({
+            text: tgtContent,
             bf_lib: filteredBfLib,
-            at_lib: filteredAtLib
-          })
-        : window.electron.tts(tgtContent, {
-            apiUrl,
-            apiKey: config.apiKey || undefined,
-            voiceGender: config.voiceGender,
-            voiceName: config.voiceName || undefined,
+            at_lib: filteredAtLib,
             rate: config.rate || '+35%',
-            bf_lib: filteredBfLib,
-            at_lib: filteredAtLib
+            voice_gender: config.voiceGender || 'Female',
+            voice_name: config.voiceName || null,
+            lang: 'th',
+            append_end: true
           }))
+        }
 
-      // Extract data from response (now returns {requestId, data})
-      const base64 = response.data
-      if (!base64 || base64.length < 100) throw new Error('ไม่ได้รับไฟล์เสียงจาก API')
+        ws.onmessage = (event) => {
+          if (event.data instanceof ArrayBuffer && event.data.byteLength > 0) {
+            chunks.push(event.data)
+          } else if (typeof event.data === 'string') {
+            if (event.data === 'END') {
+              ws.close()
+              resolve()
+            } else if (event.data.startsWith('ERROR:')) {
+              ws.close()
+              reject(new Error(event.data.slice(7).trim()))
+            } else {
+              try {
+                const msg = JSON.parse(event.data)
+                if (msg.percent !== undefined) {
+                  setTtsProgress({
+                    phase: msg.phase ?? 'progress',
+                    current: msg.current ?? 1,
+                    total: msg.total ?? 1,
+                    percent: msg.percent,
+                    requestId: ''
+                  })
+                }
+              } catch {}
+            }
+          }
+        }
 
-      // Save to file
+        ws.onerror = () => reject(new Error('WebSocket เชื่อมต่อล้มเหลว'))
+      })
+
+      if (!chunks.length) throw new Error('ไม่ได้รับไฟล์เสียงจาก API')
+
+      // Combine all chunks → base64
+      const totalBytes = chunks.reduce((s, c) => s + c.byteLength, 0)
+      const combined = new Uint8Array(totalBytes)
+      let offset = 0
+      for (const c of chunks) { combined.set(new Uint8Array(c), offset); offset += c.byteLength }
+      const base64 = uint8ToBase64(combined)
+
       const filename = tgtPath
-        ? `${tgtPath
-            .split(/[\\/]/)
-            .pop()
-            ?.replace(/\.[^.]+$/, '')}.mp3`
+        ? `${tgtPath.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, '')}.mp3`
         : `voice.mp3`
 
+      setTtsMsg('กำลังบันทึกไฟล์…')
       await window.electron.saveAudioFile(base64, filename, config.outputPath)
 
       setTtsStatus('ok')
@@ -339,6 +358,7 @@ export function TTSApiTab({
     } catch (e) {
       setTtsStatus('error')
       setTtsMsg(e instanceof Error ? e.message.slice(0, 160) : String(e))
+      setTtsProgress(null)
     }
   }
 
@@ -383,7 +403,7 @@ export function TTSApiTab({
               try {
                 const filteredBfLib = filterUsedGlossariesFromRecord(line, glossaries?.bf_lib)
                 const filteredAtLib = filterUsedGlossariesFromRecord(line, glossaries?.at_lib)
-                const resp = await fetch(`${apiUrl}/generate`, {
+                const resp = await fetch(`${apiUrl}/stream`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -511,11 +531,11 @@ export function TTSApiTab({
         </span>
         <span style={{ fontSize: 10, color: 'var(--text2)', marginLeft: 'auto' }}></span>
         <a
-          href="https://novelttsapi.onrender.com/docs"
+          href="https://novelttsapi-0mv2.onrender.com/docs"
           onClick={(e) => {
             e.preventDefault()
             const openWindow = window.open as (url: string, target: string) => void
-            openWindow?.('https://novelttsapi.onrender.com/docs', '_blank')
+            openWindow?.('https://novelttsapi-0mv2.onrender.com/docs', '_blank')
           }}
           style={{
             fontSize: 9,
@@ -540,7 +560,7 @@ export function TTSApiTab({
               style={inp}
               value={config.apiUrl}
               onChange={(e) => update({ apiUrl: e.target.value })}
-              placeholder="https://novelttsapi.onrender.com"
+              placeholder="https://novelttsapi-0mv2.onrender.com"
               spellCheck={false}
             />
           </div>
@@ -590,6 +610,23 @@ export function TTSApiTab({
               onChange={(e) => update({ rate: e.target.value })}
               placeholder="+35%"
             />
+          </div>
+
+          {/* Playback Volume */}
+          <div style={row}>
+            <span style={lbl}>Volume</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={config.playbackVolume ?? 0.7}
+              onChange={(e) => update({ playbackVolume: parseFloat(e.target.value) })}
+              style={{ flex: 1, accentColor: 'var(--hl-teal)', cursor: 'pointer' }}
+            />
+            <span style={{ ...lbl, width: 32, textAlign: 'right', color: 'var(--text1)' }}>
+              {Math.round((config.playbackVolume ?? 0.7) * 100)}%
+            </span>
           </div>
 
           {/* Voice Name (optional lock) */}

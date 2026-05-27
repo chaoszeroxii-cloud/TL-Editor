@@ -283,7 +283,7 @@ For nested JSON structures, use the cascading dropdown to select the correct pat
 
 1. Go to **Setup** (sidebar) or **AI Translate Panel**
 2. Configure:
-   - **TTS API URL:** `http://localhost:8000` (local) or `https://novelttsapi.onrender.com` (cloud)
+   - **TTS API URL:** `http://localhost:8000` (local) or `https://novelttsapi-0mv2.onrender.com` (cloud)
    - **API Key:** If required by your API
    - **Voice Gender:** Female or Male
    - **Voice Name:** Specific voice (optional)

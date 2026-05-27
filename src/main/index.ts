@@ -169,7 +169,7 @@ app.whenReady().then(() => {
       } else {
         // Production: Stricter CSP without unsafe-inline (nonce-based for dynamic content)
         const nonce = crypto.randomBytes(16).toString('hex')
-        csp = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'nonce-${nonce}'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'`
+        csp = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'nonce-${nonce}'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'`
       }
 
       callback({

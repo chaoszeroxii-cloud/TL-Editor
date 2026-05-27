@@ -45,6 +45,7 @@ export interface VRowPairProps {
   voiceGender?: VoiceGender
   onVoiceGenderChange?: (rowIdx: number, gender: VoiceGender) => void
   onPlayRow?: (rowIndex: number, text: string) => void
+  isStreaming?: boolean
   flagNote?: string
 }
 
@@ -89,6 +90,7 @@ export const VRowPair = memo(function VRowPair({
   voiceGender = 'female',
   onVoiceGenderChange,
   onPlayRow,
+  isStreaming = false,
   flagNote
 }: VRowPairProps): JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -162,33 +164,41 @@ export const VRowPair = memo(function VRowPair({
         onMouseEnter={() => setTgtHovered(true)}
         onMouseLeave={() => setTgtHovered(false)}
       >
-        {tgtHovered && !isEditing && tgtText.trim() && onPlayRow && (
+        {(isStreaming || (tgtHovered && !isEditing && tgtText.trim())) && onPlayRow && (
           <button
             onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
               e.stopPropagation()
               onPlayRow(rowIndex, tgtText)
             }}
-            title="ฟังเสียงบรรทัดนี้"
+            title={isStreaming ? 'หยุดเสียง' : 'ฟังเสียงบรรทัดนี้'}
             style={{
               position: 'absolute',
               right: 4,
               top: '50%',
               transform: 'translateY(-50%)',
               zIndex: 10,
-              background: 'var(--bg3)',
-              border: '1px solid var(--border)',
+              background: isStreaming ? 'rgba(62,207,160,0.15)' : 'var(--bg3)',
+              border: `1px solid ${isStreaming ? 'var(--hl-teal)' : 'var(--border)'}`,
               borderRadius: 4,
               color: 'var(--hl-teal)',
               fontSize: 10,
-              padding: '1px 6px',
+              padding: '2px 6px',
               cursor: 'pointer',
               fontFamily: 'var(--font-mono)',
               lineHeight: 1.4,
-              opacity: 0.85
+              opacity: 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0
             }}
           >
-            ▶
+            {isStreaming ? (
+              <span style={{ display: 'inline-flex', gap: 2, alignItems: 'center' }}>
+                <span style={{ width: 3, height: 10, background: 'currentColor', borderRadius: 1, display: 'block' }} />
+                <span style={{ width: 3, height: 10, background: 'currentColor', borderRadius: 1, display: 'block' }} />
+              </span>
+            ) : '▶'}
           </button>
         )}
         <Row

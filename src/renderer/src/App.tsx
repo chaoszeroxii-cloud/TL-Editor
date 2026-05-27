@@ -139,7 +139,7 @@ export default function App(): JSX.Element {
       }
 
       app.setTtsConfig({
-        apiUrl: cfg.ttsApiUrl || 'https://novelttsapi.onrender.com',
+        apiUrl: cfg.ttsApiUrl || 'https://novelttsapi-0mv2.onrender.com',
         apiKey: cfg.ttsApiKey || '',
         voiceGender: cfg.ttsVoiceGender || 'Female',
         voiceName: cfg.ttsVoiceName || '',

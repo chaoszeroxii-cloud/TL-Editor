@@ -100,7 +100,7 @@ export function registerConfigHandlers(): void {
       aiPromptPath: cfg.aiPromptPath ?? '',
       aiGlossaryPath: cfg.aiGlossaryPath ?? '',
       // TTS fields
-      ttsApiUrl: cfg.ttsApiUrl ?? 'https://novelttsapi.onrender.com',
+      ttsApiUrl: cfg.ttsApiUrl ?? 'https://novelttsapi-0mv2.onrender.com',
       ttsApiKey,
       ttsVoiceGender: cfg.ttsVoiceGender ?? 'Female',
       ttsVoiceName: cfg.ttsVoiceName ?? '',

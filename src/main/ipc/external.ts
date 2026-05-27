@@ -49,7 +49,7 @@ let healthCheckIntervalHandle: NodeJS.Timeout | null = null
 const defaultHealthConfig: HealthCheckConfig = {
   enabled: true,
   intervalMs: 5 * 60 * 1000, // 5 minutes
-  apiUrl: 'https://novelttsapi.onrender.com'
+  apiUrl: 'https://novelttsapi-0mv2.onrender.com'
 }
 
 function startHealthCheck(config: HealthCheckConfig = defaultHealthConfig): void {
@@ -571,8 +571,8 @@ export function registerExternalHandlers(): void {
     ) => {
       const requestId = generateRequestId()
       const apiUrl = assertHttpUrl(
-        (options?.apiUrl || 'https://novelttsapi.onrender.com').trim().replace(/\/$/, '')
-      )
+        (options?.apiUrl || 'https://novelttsapi-0mv2.onrender.com').trim()
+      ).replace(/\/$/, '')
       const apiKey = options?.apiKey || ''
 
       // Build payload — preprocessing already done by ttsPreprocess.ts on renderer
@@ -587,7 +587,7 @@ export function registerExternalHandlers(): void {
       })
 
       return new Promise<{ requestId: string; data: string }>((resolve, reject) => {
-        const timeout = 120_000 // 2 minutes
+        const timeout = 600_000 // 10 minutes — full chapter can take a while
         const headers: Record<string, string> = {
           'Content-Type': 'application/json'
         }
@@ -602,7 +602,7 @@ export function registerExternalHandlers(): void {
 
         const req = net.request({
           method: 'POST',
-          url: `${apiUrl}generate`,
+          url: `${apiUrl}/generate`,
           headers
         })
 
@@ -668,8 +668,8 @@ export function registerExternalHandlers(): void {
     ) => {
       const requestId = generateRequestId()
       const apiUrl = assertHttpUrl(
-        (options?.apiUrl || 'https://novelttsapi.onrender.com').trim().replace(/\/$/, '')
-      )
+        (options?.apiUrl || 'https://novelttsapi-0mv2.onrender.com').trim()
+      ).replace(/\/$/, '')
       const apiKey = options?.apiKey || ''
 
       // Build payload for streaming endpoint

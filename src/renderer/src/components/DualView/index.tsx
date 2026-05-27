@@ -1,12 +1,4 @@
-import {
-  useRef,
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  memo,
-  JSX
-} from 'react'
+import { useRef, useState, useEffect, useCallback, useMemo, memo, JSX } from 'react'
 import type { GlossaryEntry } from '../../types'
 import { AudioPlayer } from '../AudioPlayer'
 import { FindBar } from './FindBar'
@@ -99,6 +91,7 @@ export interface DualViewProps {
     voiceName?: string
     rate?: string
     outputPath?: string
+    playbackVolume?: number
   }
   ttsGlossaries?: GlossaryLibraries
   onSaveTtsAudio?: (audio: string | Uint8Array, defaultName: string) => Promise<void>
@@ -256,6 +249,31 @@ export function DualView({
   const [ttsError, setTtsError] = useState<string | null>(null)
   const [ttsBytes, setTtsBytes] = useState<Uint8Array | null>(null)
   const [ttsBase64, setTtsBase64] = useState<string | null>(null)
+  const [activeStreamRow, setActiveStreamRow] = useState<number | null>(null)
+
+  // Refs for streaming — stable across renders, no stale closure issues
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const activeWsRef = useRef<WebSocket | null>(null)
+  const activeMsUrlRef = useRef<string | null>(null)
+  const activeStreamRowRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    activeStreamRowRef.current = activeStreamRow
+  }, [activeStreamRow])
+
+  const stopStream = useCallback(() => {
+    activeWsRef.current?.close()
+    activeWsRef.current = null
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.src = ''
+    }
+    if (activeMsUrlRef.current) {
+      URL.revokeObjectURL(activeMsUrlRef.current)
+      activeMsUrlRef.current = null
+    }
+    setActiveStreamRow(null)
+  }, [])
 
   // Revoke any outstanding blob URL when the component unmounts
   useEffect(() => {
@@ -266,6 +284,8 @@ export function DualView({
       })
       setTtsBytes(null)
       setTtsBase64(null)
+      activeWsRef.current?.close()
+      if (activeMsUrlRef.current) URL.revokeObjectURL(activeMsUrlRef.current)
     }
   }, [])
 
@@ -288,6 +308,154 @@ export function DualView({
 
   const handleTts = useCallback(
     async (text: string, rowIndex?: number | null) => {
+      // ── Row path: WebSocket /ws/stream → real-time MSE playback ────────────
+      if (rowIndex !== undefined && rowIndex !== null && getLineTone && ttsConfig?.apiUrl) {
+        // Toggle: same row → stop
+        if (activeStreamRowRef.current === rowIndex) {
+          stopStream()
+          return
+        }
+        stopStream()
+
+        const filteredBfLib = filterUsedGlossariesFromRecord(text, ttsGlossaries?.bf_lib)
+        const filteredAtLib = filterUsedGlossariesFromRecord(text, ttsGlossaries?.at_lib)
+        const processed = preprocessForTtsFromRecords(text, filteredBfLib, filteredAtLib)
+
+        const { getToneConfig } = await import('../../constants/tones')
+        const toneName = getLineTone(rowIndex)
+        const voiceGender = getLineVoiceGender?.(rowIndex) || ttsConfig.voiceGender || 'female'
+        const genderKey = (voiceGender.toLowerCase() === 'female' ? 'female' : 'male') as
+          | 'female'
+          | 'male'
+        const toneConfig = getToneConfig(toneName, genderKey)
+
+        const apiUrl = (ttsConfig.apiUrl || 'https://novelttsapi-0mv2.onrender.com')
+          .trim()
+          .replace(/\/$/, '')
+        const wsUrl = apiUrl.replace(/^http/, 'ws') + '/ws/stream'
+
+        if (!MediaSource.isTypeSupported('audio/mpeg')) {
+          setTtsError('MSE audio/mpeg not supported in this environment')
+          return
+        }
+
+        const ms = new MediaSource()
+        const msUrl = URL.createObjectURL(ms)
+        activeMsUrlRef.current = msUrl
+
+        const audio = audioRef.current!
+        audio.volume = ttsConfig.playbackVolume ?? 0.7
+        audio.src = msUrl
+
+        setActiveStreamRow(rowIndex)
+        setTtsError(null)
+
+        ms.addEventListener(
+          'sourceopen',
+          () => {
+            let sb: SourceBuffer
+            try {
+              sb = ms.addSourceBuffer('audio/mpeg')
+            } catch {
+              setTtsError('ไม่สามารถเริ่ม audio stream ได้')
+              stopStream()
+              return
+            }
+
+            const queue: ArrayBuffer[] = []
+            let wsEnded = false
+            let appending = false
+
+            const flush = (): void => {
+              if (appending || queue.length === 0 || ms.readyState !== 'open') return
+              appending = true
+              try {
+                sb.appendBuffer(queue.shift()!)
+              } catch {
+                appending = false
+              }
+            }
+
+            sb.addEventListener('updateend', () => {
+              appending = false
+              if (wsEnded && queue.length === 0) {
+                try {
+                  if (ms.readyState === 'open') ms.endOfStream()
+                } catch {}
+              } else {
+                flush()
+              }
+            })
+
+            const ws = new WebSocket(wsUrl)
+            ws.binaryType = 'arraybuffer'
+            activeWsRef.current = ws
+
+            ws.onopen = () => {
+              ws.send(
+                JSON.stringify({
+                  text: processed,
+                  bf_lib: filteredBfLib,
+                  at_lib: filteredAtLib,
+                  rate_pct: toneConfig.rate_pct,
+                  pitch_hz: toneConfig.pitch_hz,
+                  volume_pct: toneConfig.volume_pct,
+                  voice_gender: voiceGender,
+                  voice_name: ttsConfig.voiceName || null,
+                  lang: 'th',
+                  append_end: false
+                })
+              )
+            }
+
+            ws.onmessage = (event) => {
+              if (event.data instanceof ArrayBuffer && event.data.byteLength > 0) {
+                queue.push(event.data)
+                flush()
+                if (audio.paused) audio.play().catch(() => {})
+              } else if (typeof event.data === 'string') {
+                if (event.data === 'END') {
+                  wsEnded = true
+                  if (!appending && queue.length === 0 && ms.readyState === 'open') {
+                    try {
+                      ms.endOfStream()
+                    } catch {}
+                  }
+                } else if (event.data.startsWith('ERROR:')) {
+                  setTtsError(event.data.slice(7).trim())
+                  setActiveStreamRow(null)
+                }
+              }
+            }
+
+            ws.onerror = () => {
+              setTtsError('WebSocket เชื่อมต่อล้มเหลว')
+              setActiveStreamRow(null)
+            }
+
+            ws.onclose = () => {
+              if (activeWsRef.current === ws) activeWsRef.current = null
+            }
+          },
+          { once: true }
+        )
+
+        audio.addEventListener(
+          'ended',
+          () => {
+            if (activeMsUrlRef.current === msUrl) {
+              URL.revokeObjectURL(msUrl)
+              activeMsUrlRef.current = null
+              setActiveStreamRow(null)
+            }
+          },
+          { once: true }
+        )
+
+        return
+      }
+
+      // ── Non-row path: IPC /generate (context menu TTS) ─────────────────────
       if (ttsLoading) return
       setTtsLoading(true)
       setTtsError(null)
@@ -301,59 +469,20 @@ export function DualView({
         const filteredBfLib = filterUsedGlossariesFromRecord(text, ttsGlossaries?.bf_lib)
         const filteredAtLib = filterUsedGlossariesFromRecord(text, ttsGlossaries?.at_lib)
         const processed = preprocessForTtsFromRecords(text, filteredBfLib, filteredAtLib)
-
-        // If rowIndex is provided and we have getLineTone, use Novel TTS API with per-line tone
-        if (rowIndex !== undefined && rowIndex !== null && getLineTone && ttsConfig?.apiUrl) {
-          const { getToneConfig } = await import('../../constants/tones')
-          const toneName = getLineTone(rowIndex)
-          const voiceGender = getLineVoiceGender?.(rowIndex) || ttsConfig?.voiceGender || 'female'
-          const genderKey = (voiceGender.toLowerCase() === 'female' ? 'female' : 'male') as
-            | 'female'
-            | 'male'
-          const toneConfig = getToneConfig(toneName, genderKey)
-
-          // Call Novel TTS API directly with tone config
-          const apiUrl = (ttsConfig.apiUrl || 'https://novelttsapi.onrender.com').trim()
-          const response = await fetch(`${apiUrl}/generate`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(ttsConfig?.apiKey ? { Authorization: `Bearer ${ttsConfig.apiKey}` } : {})
-            },
-            body: JSON.stringify({
-              text: processed,
-              bf_lib: filteredBfLib,
-              at_lib: filteredAtLib,
-              rate_pct: toneConfig.rate_pct,
-              pitch_hz: toneConfig.pitch_hz,
-              volume_pct: toneConfig.volume_pct,
-              voice_gender: voiceGender,
-              voice_name: ttsConfig?.voiceName || undefined,
-              lang: 'th'
-            })
-          })
-
-          if (!response.ok) throw new Error(`Novel TTS API Error: ${response.status}`)
-          const bytes = new Uint8Array(await response.arrayBuffer())
-          setTtsBlobUrl(URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' })))
-          setTtsBytes(bytes)
-        } else {
-          // Fallback to electron IPC
-          const ttsResponse = await window.electron.tts(processed, {
-            apiUrl: ttsConfig?.apiUrl,
-            apiKey: ttsConfig?.apiKey,
-            voiceGender: ttsConfig?.voiceGender,
-            voiceName: ttsConfig?.voiceName || undefined,
-            rate: ttsConfig?.rate,
-            bf_lib: filteredBfLib,
-            at_lib: filteredAtLib
-          })
-          const base64 = ttsResponse.data
-          const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
-          setTtsBlobUrl(URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' })))
-          setTtsBytes(bytes)
-          setTtsBase64(base64)
-        }
+        const ttsResponse = await window.electron.tts(processed, {
+          apiUrl: ttsConfig?.apiUrl,
+          apiKey: ttsConfig?.apiKey,
+          voiceGender: ttsConfig?.voiceGender,
+          voiceName: ttsConfig?.voiceName || undefined,
+          rate: ttsConfig?.rate,
+          bf_lib: filteredBfLib,
+          at_lib: filteredAtLib
+        })
+        const base64 = ttsResponse.data
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+        setTtsBlobUrl(URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' })))
+        setTtsBytes(bytes)
+        setTtsBase64(base64)
       } catch (e) {
         console.error('TTS failed:', e)
         setTtsError(e instanceof Error ? e.message : 'TTS ล้มเหลว')
@@ -361,7 +490,7 @@ export function DualView({
         setTtsLoading(false)
       }
     },
-    [ttsLoading, ttsConfig, ttsGlossaries, getLineTone, getLineVoiceGender]
+    [ttsLoading, stopStream, ttsConfig, ttsGlossaries, getLineTone, getLineVoiceGender]
   )
 
   // ── Row editing ─────────────────────────────────────────────────────────────
@@ -399,7 +528,10 @@ export function DualView({
 
   const [debouncedQuery, setDebouncedQuery] = useState('')
   useEffect(() => {
-    if (!findQuery.trim()) { setDebouncedQuery(''); return }
+    if (!findQuery.trim()) {
+      setDebouncedQuery('')
+      return
+    }
     const id = setTimeout(() => setDebouncedQuery(findQuery), 200)
     return () => clearTimeout(id)
   }, [findQuery])
@@ -836,12 +968,16 @@ export function DualView({
                 voiceGender={currentVoiceGender}
                 onVoiceGenderChange={showToneControls ? handleRowVoiceGenderChange : undefined}
                 onPlayRow={handlePlayRow}
+                isStreaming={activeStreamRow === i}
                 flagNote={flaggedRows?.get(i)}
               />
             )
           })}
         </div>
       </div>
+
+      {/* Hidden audio element for WebSocket streaming */}
+      <audio ref={audioRef} style={{ display: 'none' }} />
 
       {/* Overlays */}
       {ctxMenu && (
