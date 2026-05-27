@@ -344,7 +344,7 @@ export function DualView({
         activeMsUrlRef.current = msUrl
 
         const audio = audioRef.current!
-        audio.volume = ttsConfig.playbackVolume ?? 0.7
+        audio.volume = ttsConfig.playbackVolume ?? 0.35
         audio.src = msUrl
 
         setActiveStreamRow(rowIndex)

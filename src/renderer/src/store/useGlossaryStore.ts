@@ -56,6 +56,11 @@ export function useGlossaryStore(): GlossaryStore {
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([])
   const glossaryRef = useRef<GlossaryEntry[]>([])
   const _setGlossary: Dispatch<SetStateAction<GlossaryEntry[]>> = useCallback((val) => {
+    // Update ref immediately for concrete values so save functions called in the same
+    // event handler always read the latest data (React batches the state update).
+    if (typeof val !== 'function') {
+      glossaryRef.current = val
+    }
     setGlossary((prev) => {
       const next =
         typeof val === 'function' ? (val as (p: GlossaryEntry[]) => GlossaryEntry[])(prev) : val
@@ -208,12 +213,9 @@ export function useGlossaryStore(): GlossaryStore {
 
   const saveEditEntry = useCallback(
     async (updated: GlossaryEntry, original: GlossaryEntry, targetFile?: string) => {
-      // State is already updated by GlossaryPanel's handleEdit
-      // Just save to files here
       const oldFile = original._file
       const newFile = targetFile || updated._file
 
-      // If entry was moved between files, update both files as a batch
       const filesToUpdate = new Set<string>()
       if (oldFile) filesToUpdate.add(oldFile)
       if (newFile) filesToUpdate.add(newFile)
@@ -222,7 +224,12 @@ export function useGlossaryStore(): GlossaryStore {
       const currentGlossary = Array.isArray(glossaryRef.current) ? glossaryRef.current : []
       for (const fileName of filesToUpdate) {
         if (sourceFilePaths[fileName]) {
-          const fileEntries = currentGlossary.filter((g) => g._file === fileName)
+          // glossaryRef.current may be stale — remove the old entry by src, then
+          // insert the updated entry only in its destination file.
+          const withoutOld = currentGlossary
+            .filter((g) => g._file === fileName)
+            .filter((g) => g.src !== original.src)
+          const fileEntries = fileName === newFile ? [...withoutOld, updated] : withoutOld
           updates.push(saveFileEntries(fileName, fileEntries))
         }
       }
@@ -239,15 +246,16 @@ export function useGlossaryStore(): GlossaryStore {
 
   const saveAddEntry = useCallback(
     async (entry: GlossaryEntry, targetFile: string) => {
-      // State is already updated by GlossaryPanel's handleAdd
-      // But to be safe, ensure the entry is included in the file save
       if (sourceFilePaths[targetFile]) {
         try {
           const currentGlossary = Array.isArray(glossaryRef.current) ? glossaryRef.current : []
           const currentFileEntries = currentGlossary.filter((g) => g._file === targetFile)
-          // Check if entry is already in the list (by src)
-          const exists = currentFileEntries.some((g) => g.src === entry.src)
-          const fileEntries = exists ? currentFileEntries : [...currentFileEntries, entry]
+          // glossaryRef.current may be stale (React batches the state update from handleAdd).
+          // Always replace any stale entry with the same src, then append the new one.
+          const fileEntries = [
+            ...currentFileEntries.filter((g) => g.src !== entry.src),
+            entry
+          ]
           await saveFileEntries(targetFile, fileEntries)
         } catch (e) {
           console.error('Auto-save after add failed:', e)
