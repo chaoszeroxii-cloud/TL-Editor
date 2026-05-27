@@ -26,6 +26,12 @@ export interface AppConfig {
   mp4ImagePath?: string
   mp4FilenamePrefix?: string
   pairingSourcePath?: string
+  mergeAudioSourceDir?: string
+  mergeAudioOutputDir?: string
+  mergeAudioPrefix?: string
+  readrealmFolder?: string
+  readrealmNote?: string
+  readrealmNovelId?: string
 }
 
 // ─── Keytar helpers (secure credential storage) ───────────────────────────────
@@ -109,7 +115,14 @@ export function registerConfigHandlers(): void {
       mp4OutputPath: cfg.mp4OutputPath ?? '',
       mp4ImagePath: cfg.mp4ImagePath ?? '',
       mp4FilenamePrefix: cfg.mp4FilenamePrefix ?? '',
-      pairingSourcePath: cfg.pairingSourcePath ?? ''
+      pairingSourcePath: cfg.pairingSourcePath ?? '',
+      mergeAudioSourceDir: cfg.mergeAudioSourceDir ?? '',
+      mergeAudioOutputDir: cfg.mergeAudioOutputDir ?? '',
+      mergeAudioPrefix: cfg.mergeAudioPrefix ?? '',
+      readrealmFolder: cfg.readrealmFolder ?? '',
+      readrealmNote: cfg.readrealmNote ?? '',
+      readrealmNovelId: cfg.readrealmNovelId ?? '',
+      readrealmUsername: (await loadApiKey('readrealm-user')) ?? ''
     }
   })
 

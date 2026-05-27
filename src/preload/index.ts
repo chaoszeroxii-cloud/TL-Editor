@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
-const eventChannels = new Set(['mp3-to-mp4:progress', 'tts:progress', 'openrouter-stream-chunk'])
+const eventChannels = new Set(['mp3-to-mp4:progress', 'tts:progress', 'openrouter-stream-chunk', 'merge-audio:progress'])
 
 contextBridge.exposeInMainWorld('electron', {
   getEnvConfig: () => ipcRenderer.invoke('get-env-config'),
@@ -87,5 +87,31 @@ contextBridge.exposeInMainWorld('electron', {
     }
   ) => ipcRenderer.invoke('convert-mp3-to-mp4', opts),
   cancelMp3ToMp4: () => ipcRenderer.invoke('cancel-mp3-to-mp4'),
-  concatMp3s: (audioBase64Array: string[]) => ipcRenderer.invoke('concat-mp3s', audioBase64Array)
+  concatMp3s: (audioBase64Array: string[]) => ipcRenderer.invoke('concat-mp3s', audioBase64Array),
+  mergeEpisodeAudio: (opts: {
+    sourceDir: string
+    fromEp: number
+    toEp: number
+    batchSize: number
+    prefix: string
+    outputDir: string
+  }) => ipcRenderer.invoke('merge-episode-audio', opts),
+  cancelMergeAudio: () => ipcRenderer.invoke('cancel-merge-audio'),
+
+  // ReadRealm Publisher
+  readrealmSaveCredentials: (opts: { username: string; password: string }) =>
+    ipcRenderer.invoke('readrealm-save-credentials', opts),
+  readrealmGetToken: () => ipcRenderer.invoke('readrealm-get-token'),
+  readrealmGetNovels: () => ipcRenderer.invoke('readrealm-get-novels'),
+  readrealmGetChapters: (opts: { novelId: string }) =>
+    ipcRenderer.invoke('readrealm-get-chapters', opts),
+  readrealmUploadChapter: (opts: {
+    novelId: string
+    chapterId: string
+    title: string
+    content: string
+    price: number
+    publishDatetime: string
+    note: string
+  }) => ipcRenderer.invoke('readrealm-upload-chapter', opts)
 })

@@ -22,6 +22,8 @@ import { AudioPlayer } from './components/AudioPlayer'
 import { TerminalPanel } from './components/Terminal'
 import { AITranslatePanel } from './components/AITranslatePanel'
 import { Mp3ToMp4 } from './components/Mp3ToMp4'
+import { MergeAudioPanel } from './components/MergeAudioPanel'
+import { ReadRealmPanel } from './components/ReadRealmPanel'
 import { SetupWizard } from './components/setup/SetupWizard'
 import {
   useStyleProfileStore,
@@ -499,6 +501,7 @@ export default function App(): JSX.Element {
 
   const hasAnyFile = files.tgtPath !== null
   const [helpOpen, setHelpOpen] = useState(false)
+  const [readrealmOpen, setReadrealmOpen] = useState(false)
 
   // ── Setup wizard ─────────────────────────────────────────────────────────
   if (showSetup) return <SetupWizard onDone={handleSetupDone} />
@@ -532,7 +535,9 @@ export default function App(): JSX.Element {
           glossaryVisible={app.glossaryVisible}
           ttsOpen={app.terminalOpen}
           mp3ConverterOpen={app.mp3ConverterOpen}
+          mergeAudioOpen={app.mergeAudioOpen}
           aiPanelOpen={app.aiPanelOpen || app.styleProfileOpen}
+          readrealmOpen={readrealmOpen}
           pairingSourcePath={pairingSourcePath}
           saving={files.saving}
           theme={theme}
@@ -543,7 +548,9 @@ export default function App(): JSX.Element {
           onToggleGlossary={app.toggleGlossary}
           onToggleTts={app.toggleTerminal}
           onToggleMp3Converter={app.toggleMp3Converter}
+          onToggleMergeAudio={app.toggleMergeAudio}
           onToggleAi={handleToggleAiPanel}
+          onToggleReadrealm={() => setReadrealmOpen((v) => !v)}
           onSelectPairingSource={handleSelectPairingSource}
           onRefresh={handleRefresh}
           onToggleTheme={toggleTheme}
@@ -693,6 +700,20 @@ export default function App(): JSX.Element {
       {app.mp3ConverterOpen && (
         <ErrorBoundary name="Mp3ToMp4">
           <Mp3ToMp4 onClose={() => app.setMp3ConverterOpen(false)} />
+        </ErrorBoundary>
+      )}
+
+      {/* Merge Audio */}
+      {app.mergeAudioOpen && (
+        <ErrorBoundary name="MergeAudioPanel">
+          <MergeAudioPanel onClose={() => app.setMergeAudioOpen(false)} />
+        </ErrorBoundary>
+      )}
+
+      {/* ReadRealm Publisher */}
+      {readrealmOpen && (
+        <ErrorBoundary name="ReadRealmPanel">
+          <ReadRealmPanel onClose={() => setReadrealmOpen(false)} />
         </ErrorBoundary>
       )}
 
@@ -864,7 +885,9 @@ const TopBarRight = memo(function TopBarRight({
   glossaryVisible,
   ttsOpen,
   mp3ConverterOpen,
+  mergeAudioOpen,
   aiPanelOpen,
+  readrealmOpen,
   pairingSourcePath,
   saving,
   theme,
@@ -874,6 +897,8 @@ const TopBarRight = memo(function TopBarRight({
   onToggleGlossary,
   onToggleTts,
   onToggleMp3Converter,
+  onToggleMergeAudio,
+  onToggleReadrealm,
   onToggleAi,
   onSelectPairingSource,
   onRefresh,
@@ -889,7 +914,9 @@ const TopBarRight = memo(function TopBarRight({
   glossaryVisible: boolean
   ttsOpen: boolean
   mp3ConverterOpen: boolean
+  mergeAudioOpen: boolean
   aiPanelOpen: boolean
+  readrealmOpen: boolean
   pairingSourcePath: string
   saving: boolean
   theme: 'dark' | 'light'
@@ -900,6 +927,8 @@ const TopBarRight = memo(function TopBarRight({
   onToggleTts: () => void
   onToggleAi: () => void
   onToggleMp3Converter: () => void
+  onToggleMergeAudio: () => void
+  onToggleReadrealm: () => void
   onSelectPairingSource: () => void
   onRefresh: () => void
   onToggleTheme: () => void
@@ -989,6 +1018,22 @@ const TopBarRight = memo(function TopBarRight({
         label=""
         title="MP3 → MP4 Converter"
         onClick={onToggleMp3Converter}
+        compact={compact}
+      />
+      <ActionButton
+        active={mergeAudioOpen}
+        icon="⊕"
+        label=""
+        title="Merge Audio"
+        onClick={onToggleMergeAudio}
+        compact={compact}
+      />
+      <ActionButton
+        active={readrealmOpen}
+        icon="RR"
+        label=""
+        title="ReadRealm Publisher"
+        onClick={onToggleReadrealm}
         compact={compact}
       />
       <button

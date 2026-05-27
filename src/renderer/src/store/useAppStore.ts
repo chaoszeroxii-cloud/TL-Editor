@@ -34,6 +34,8 @@ export interface AppStore {
   setTerminalOpen: Dispatch<SetStateAction<boolean>>
   mp3ConverterOpen: boolean
   setMp3ConverterOpen: Dispatch<SetStateAction<boolean>>
+  mergeAudioOpen: boolean
+  setMergeAudioOpen: Dispatch<SetStateAction<boolean>>
   aiPanelOpen: boolean
   setAiPanelOpen: Dispatch<SetStateAction<boolean>>
 
@@ -42,6 +44,7 @@ export interface AppStore {
   toggleGlossary: () => void
   toggleTerminal: () => void
   toggleMp3Converter: () => void
+  toggleMergeAudio: () => void
   toggleAiPanel: () => void
 
   // AI Config
@@ -73,12 +76,14 @@ export function useAppStore(): AppStore {
   const [glossaryVisible, setGlossaryVisible] = useState(true)
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [mp3ConverterOpen, setMp3ConverterOpen] = useState(false)
+  const [mergeAudioOpen, setMergeAudioOpen] = useState(false)
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
 
   const toggleSidebar = useCallback(() => setSidebarVisible((v) => !v), [])
   const toggleGlossary = useCallback(() => setGlossaryVisible((v) => !v), [])
   const toggleTerminal = useCallback(() => setTerminalOpen((v) => !v), [])
   const toggleMp3Converter = useCallback(() => setMp3ConverterOpen((v) => !v), [])
+  const toggleMergeAudio = useCallback(() => setMergeAudioOpen((v) => !v), [])
   const toggleAiPanel = useCallback(() => setAiPanelOpen((v) => !v), [])
 
   // ── AI config ────────────────────────────────────────────────────────────
@@ -137,6 +142,9 @@ export function useAppStore(): AppStore {
     mp3ConverterOpen,
     setMp3ConverterOpen,
     toggleMp3Converter,
+    mergeAudioOpen,
+    setMergeAudioOpen,
+    toggleMergeAudio,
     aiPanelOpen,
     setAiPanelOpen,
     toggleAiPanel,

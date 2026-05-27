@@ -28,6 +28,9 @@ export function approveConfigPaths(config: {
   mp4OutputPath?: string
   mp4ImagePath?: string
   pairingSourcePath?: string
+  mergeAudioSourceDir?: string
+  mergeAudioOutputDir?: string
+  readrealmFolder?: string
 }): void {
   approvePath(config.folderPath)
   approvePaths(config.jsonPaths ?? [])
@@ -37,6 +40,9 @@ export function approveConfigPaths(config: {
   approvePath(config.mp4OutputPath)
   approvePath(config.mp4ImagePath)
   approvePath(config.pairingSourcePath)
+  approvePath(config.mergeAudioSourceDir)
+  approvePath(config.mergeAudioOutputDir)
+  approvePath(config.readrealmFolder)
 }
 
 export function assertPathAllowed(target: string): string {

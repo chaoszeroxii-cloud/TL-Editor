@@ -50,6 +50,13 @@ interface _EnvConfig {
   mp4ImagePath: string
   mp4FilenamePrefix: string
   pairingSourcePath: string
+  mergeAudioSourceDir: string
+  mergeAudioOutputDir: string
+  mergeAudioPrefix: string
+  readrealmFolder: string
+  readrealmNote: string
+  readrealmNovelId: string
+  readrealmUsername: string
 }
 
 interface _SaveConfigPayload {
@@ -68,7 +75,14 @@ interface _SaveConfigPayload {
   mp4ImagePath?: string
   mp4FilenamePrefix?: string
   pairingSourcePath?: string
+  mergeAudioSourceDir?: string
+  mergeAudioOutputDir?: string
+  mergeAudioPrefix?: string
+  readrealmFolder?: string
+  readrealmNote?: string
+  readrealmNovelId?: string
 }
+
 
 // ── TTS options (shared by tts + ttsStream) ──────────────────────────────────
 interface _TtsOptions {
@@ -148,11 +162,62 @@ interface ElectronAPI {
   cancelMp3ToMp4: () => Promise<boolean>
   /** Concatenate base64 MP3 segments via ffmpeg stream copy. Returns base64 result. */
   concatMp3s: (audioBase64Array: string[]) => Promise<string>
+
+  // ── Merge Episode Audio ──────────────────────────────────────────────────
+  mergeEpisodeAudio: (opts: {
+    sourceDir: string
+    fromEp: number
+    toEp: number
+    batchSize: number
+    prefix: string
+    outputDir: string
+  }) => Promise<{ success?: boolean; canceled?: boolean }>
+  cancelMergeAudio: () => Promise<boolean>
+
+  // ── ReadRealm Publisher ──────────────────────────────────────────────────
+  readrealmSaveCredentials: (opts: {
+    username: string
+    password: string
+  }) => Promise<{ success: boolean; error?: string }>
+  readrealmGetToken: () => Promise<{ success: boolean; error?: string }>
+  readrealmGetNovels: () => Promise<{
+    success: boolean
+    data?: { total: number; data: _RRNovel[] }
+    error?: string
+  }>
+  readrealmGetChapters: (opts: { novelId: string }) => Promise<{
+    success: boolean
+    data?: { total: number; data: _RRChapter[] }
+    error?: string
+  }>
+  readrealmUploadChapter: (opts: {
+    novelId: string
+    chapterId: string
+    title: string
+    content: string
+    price: number
+    publishDatetime: string
+    note: string
+  }) => Promise<{ success: boolean; error?: string }>
 }
 
 declare global {
   interface Window {
     electron: ElectronAPI
+  }
+
+  interface _RRNovel {
+    novel_ID: string
+    novel_subject: string
+    novel_chapter_count: number
+  }
+
+  interface _RRChapter {
+    novel_chapter_ID: string
+    novel_chapter_title: string
+    novel_chapter_price: number
+    novel_chapter_publish: boolean
+    novel_chapter_publish_datetime: string
   }
 }
 

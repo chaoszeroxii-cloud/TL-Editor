@@ -4,6 +4,7 @@ import { URL } from 'url'
 import { spawn } from 'child_process'
 import { basename, join } from 'path'
 import { existsSync, promises as fsPromises } from 'fs'
+import * as https from 'https'
 
 // ─── Error logging utility ─────────────────────────────────────────────────────
 
@@ -36,6 +37,8 @@ interface ActiveRequest {
 const activeRequests = new Map<string, ActiveRequest>()
 let activeMp4Conversion: ReturnType<typeof spawn> | null = null
 let cancelMp4ConversionRequested = false
+let activeMergeAudio: ReturnType<typeof spawn> | null = null
+let cancelMergeAudioRequested = false
 
 // ─── Health check for TTS API (keep-alive) ────────────────────────────────────
 
@@ -142,6 +145,21 @@ function emitTtsProgress(payload: {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       win.webContents.send('tts:progress', payload)
+    }
+  }
+}
+
+function emitMergeAudioProgress(payload: {
+  phase: 'starting' | 'merging' | 'completed' | 'error' | 'canceled'
+  currentBatch: number
+  totalBatches: number
+  currentBatchLabel: string
+  ffmpegLog?: string
+  error?: string
+}): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('merge-audio:progress', payload)
     }
   }
 }
@@ -262,6 +280,150 @@ function runFfmpeg(
     })
   })
 }
+
+// ─── ReadRealm helpers ────────────────────────────────────────────────────────
+
+import { loadApiKey, saveApiKey } from './config'
+
+const RR_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36'
+const RR_API = 'https://api-writer.readrealm.co'
+
+let rrToken: string | null = null
+let rrTokenExpiry = 0
+
+interface RRHttp {
+  status: number
+  body: string
+  cookies: string[]
+}
+
+function rrGet(url: string, headers: Record<string, string> = {}): Promise<RRHttp> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url)
+    const req = https.request(
+      { hostname: u.hostname, path: u.pathname + u.search, method: 'GET', headers: { 'User-Agent': RR_UA, ...headers } },
+      (res) => {
+        let body = ''
+        res.on('data', (c: Buffer) => (body += c.toString()))
+        res.on('end', () =>
+          resolve({ status: res.statusCode ?? 0, body, cookies: (res.headers['set-cookie'] as string[]) ?? [] })
+        )
+      }
+    )
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+function rrPost(url: string, bodyStr: string, headers: Record<string, string> = {}, method = 'POST'): Promise<RRHttp> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url)
+    const buf = Buffer.from(bodyStr)
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        method,
+        headers: { 'User-Agent': RR_UA, 'Content-Length': buf.length, ...headers }
+      },
+      (res) => {
+        let body = ''
+        res.on('data', (c: Buffer) => (body += c.toString()))
+        res.on('end', () =>
+          resolve({ status: res.statusCode ?? 0, body, cookies: (res.headers['set-cookie'] as string[]) ?? [] })
+        )
+      }
+    )
+    req.on('error', reject)
+    req.write(buf)
+    req.end()
+  })
+}
+
+function parseCookieMap(headers: string[]): Record<string, string> {
+  const map: Record<string, string> = {}
+  for (const h of headers) {
+    const [pair] = h.split(';')
+    const eq = pair.indexOf('=')
+    if (eq > 0) map[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim()
+  }
+  return map
+}
+
+function cookieHeader(map: Record<string, string>): string {
+  return Object.entries(map)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('; ')
+}
+
+function parseJwtExp(token: string): number {
+  try {
+    const part = token.split('.')[1]
+    const padded = part + '='.repeat((-part.length % 4 + 4) % 4)
+    const payload = JSON.parse(Buffer.from(padded, 'base64url').toString()) as { exp?: number }
+    return payload.exp ?? 0
+  } catch {
+    return 0
+  }
+}
+
+async function rrLogin(username: string, password: string): Promise<string> {
+  const csrfRes = await rrGet('https://readrealm.co/api/auth/csrf', { Accept: 'application/json' })
+  const { csrfToken } = JSON.parse(csrfRes.body) as { csrfToken: string }
+  let cookies = parseCookieMap(csrfRes.cookies)
+
+  const form = new URLSearchParams({
+    csrfToken,
+    username_or_email: username,
+    password,
+    callbackUrl: 'https://readrealm.co/',
+    json: 'true'
+  }).toString()
+
+  const loginRes = await rrPost('https://readrealm.co/api/auth/callback/credentials', form, {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    Accept: 'application/json',
+    Referer: 'https://readrealm.co/login',
+    Origin: 'https://readrealm.co',
+    Cookie: cookieHeader(cookies)
+  })
+  if (loginRes.status !== 200)
+    throw new Error(`Login failed (HTTP ${loginRes.status}): ${loginRes.body.slice(0, 200)}`)
+  cookies = { ...cookies, ...parseCookieMap(loginRes.cookies) }
+
+  const sessionRes = await rrGet('https://readrealm.co/api/auth/session', {
+    Accept: 'application/json',
+    Cookie: cookieHeader(cookies)
+  })
+  const session = JSON.parse(sessionRes.body) as { accessToken?: string }
+  if (!session.accessToken)
+    throw new Error(`No accessToken in session: ${sessionRes.body.slice(0, 200)}`)
+  return session.accessToken
+}
+
+async function rrGetToken(): Promise<string> {
+  const bufferSec = 60
+  if (rrToken && Date.now() / 1000 < rrTokenExpiry - bufferSec) return rrToken
+  const username = await loadApiKey('readrealm-user')
+  const password = await loadApiKey('readrealm-pass')
+  if (!username || !password)
+    throw new Error('ReadRealm credentials not set — กรอก username/password ใน ReadRealm panel ก่อน')
+  rrToken = await rrLogin(username, password)
+  rrTokenExpiry = parseJwtExp(rrToken)
+  return rrToken
+}
+
+function rrAuthHeaders(token: string): Record<string, string> {
+  return {
+    Accept: 'application/json, text/plain, */*',
+    Authorization: `Bearer ${token}`,
+    Origin: 'https://readrealm.co',
+    Referer: 'https://readrealm.co/'
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function registerExternalHandlers(): void {
   // ── Cancel/Abort handler for any in-flight request ───────────────────────
@@ -1043,6 +1205,249 @@ export function registerExternalHandlers(): void {
     stopHealthCheck()
     return true
   })
+
+  // ── Merge Episode Audio ───────────────────────────────────────────────────
+  ipcMain.handle(
+    'merge-episode-audio',
+    async (
+      _e,
+      opts: {
+        sourceDir: string
+        fromEp: number
+        toEp: number
+        batchSize: number
+        prefix: string
+        outputDir: string
+      }
+    ) => {
+      const { sourceDir, fromEp, toEp, batchSize, prefix, outputDir } = opts
+      cancelMergeAudioRequested = false
+
+      const extractNum = (filename: string): number => {
+        const m = filename.match(/\d+/)
+        return m ? parseInt(m[0], 10) : 0
+      }
+
+      const allFiles = await fsPromises.readdir(sourceDir)
+      const mp3Files = allFiles.filter((f) => /\.mp3$/i.test(f))
+      mp3Files.sort((a, b) => extractNum(a) - extractNum(b))
+
+      const filtered = mp3Files.filter((f) => {
+        const n = extractNum(f)
+        return n >= fromEp && n <= toEp
+      })
+
+      const foundNums = new Set(filtered.map(extractNum))
+      const missing: number[] = []
+      for (let i = fromEp; i <= toEp; i++) {
+        if (!foundNums.has(i)) missing.push(i)
+      }
+      if (missing.length > 0) {
+        const preview = missing.slice(0, 10).join(', ')
+        throw new Error(
+          `ไม่พบไฟล์บทที่: ${preview}${missing.length > 10 ? ` ... (ขาดทั้งหมด ${missing.length} บท)` : ''}`
+        )
+      }
+
+      if (filtered.length === 0) {
+        throw new Error(`ไม่พบไฟล์ MP3 ในช่วง บทที่ ${fromEp} - ${toEp}`)
+      }
+
+      const batches: string[][] = []
+      for (let i = 0; i < filtered.length; i += batchSize) {
+        batches.push(filtered.slice(i, i + batchSize))
+      }
+
+      const totalBatches = batches.length
+      emitMergeAudioProgress({
+        phase: 'starting',
+        currentBatch: 0,
+        totalBatches,
+        currentBatchLabel: ''
+      })
+
+      for (let bi = 0; bi < batches.length; bi++) {
+        if (cancelMergeAudioRequested) {
+          emitMergeAudioProgress({
+            phase: 'canceled',
+            currentBatch: bi,
+            totalBatches,
+            currentBatchLabel: ''
+          })
+          return { canceled: true }
+        }
+
+        const batch = batches[bi]
+        const firstNum = extractNum(batch[0])
+        const lastNum = extractNum(batch[batch.length - 1])
+        const batchLabel = `บทที่ ${firstNum} - ${lastNum}`
+        const outputFilename = `${prefix}${prefix ? ' ' : ''}${batchLabel}.mp3`
+        const outputPath = join(outputDir, outputFilename)
+
+        const ts = `merge_${Date.now()}_${bi}`
+        const listPath = join(app.getPath('temp'), `${ts}.txt`)
+        const listContent = batch
+          .map((f) => `file '${join(sourceDir, f).replace(/\\/g, '/')}'`)
+          .join('\n')
+        await fsPromises.writeFile(listPath, listContent, 'utf-8')
+
+        emitMergeAudioProgress({
+          phase: 'merging',
+          currentBatch: bi + 1,
+          totalBatches,
+          currentBatchLabel: batchLabel
+        })
+
+        try {
+          const ffmpegBin = resolveBundledFfmpegPath() || 'ffmpeg'
+          await new Promise<void>((resolve, reject) => {
+            const proc = spawn(
+              ffmpegBin,
+              ['-f', 'concat', '-safe', '0', '-i', listPath, '-c:a', 'copy', '-y', outputPath],
+              { windowsHide: true }
+            )
+            activeMergeAudio = proc
+            let stderr = ''
+
+            proc.stderr.on('data', (chunk: Buffer) => {
+              const text = String(chunk)
+              stderr += text
+              emitMergeAudioProgress({
+                phase: 'merging',
+                currentBatch: bi + 1,
+                totalBatches,
+                currentBatchLabel: batchLabel,
+                ffmpegLog: text
+              })
+            })
+
+            proc.on('error', reject)
+            proc.on('close', (code) => {
+              activeMergeAudio = null
+              if (cancelMergeAudioRequested) return reject(new Error('canceled'))
+              code === 0
+                ? resolve()
+                : reject(new Error(stderr.slice(0, 300) || `FFmpeg exited with code ${code ?? -1}`))
+            })
+          })
+        } finally {
+          fsPromises.unlink(listPath).catch(() => {})
+        }
+      }
+
+      emitMergeAudioProgress({
+        phase: 'completed',
+        currentBatch: totalBatches,
+        totalBatches,
+        currentBatchLabel: `บทที่ ${fromEp} - ${toEp}`
+      })
+
+      return { success: true }
+    }
+  )
+
+  ipcMain.handle('cancel-merge-audio', () => {
+    cancelMergeAudioRequested = true
+    if (activeMergeAudio) {
+      activeMergeAudio.kill('SIGTERM')
+      activeMergeAudio = null
+    }
+    return true
+  })
+
+  // ── ReadRealm Publisher ───────────────────────────────────────────────────
+
+  ipcMain.handle('readrealm-save-credentials', async (_e, opts: { username: string; password: string }) => {
+    rrToken = null
+    rrTokenExpiry = 0
+    await saveApiKey('readrealm-user', opts.username)
+    await saveApiKey('readrealm-pass', opts.password)
+    try {
+      rrToken = await rrLogin(opts.username, opts.password)
+      rrTokenExpiry = parseJwtExp(rrToken)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle('readrealm-get-token', async () => {
+    try {
+      await rrGetToken()
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle('readrealm-get-novels', async () => {
+    try {
+      const token = await rrGetToken()
+      const res = await rrGet(
+        `${RR_API}/writer/novels/getNovelsList?per_page=50&page=1`,
+        rrAuthHeaders(token)
+      )
+      if (res.status !== 200) throw new Error(`HTTP ${res.status}: ${res.body.slice(0, 200)}`)
+      return { success: true, data: JSON.parse(res.body) }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle('readrealm-get-chapters', async (_e, opts: { novelId: string }) => {
+    try {
+      const token = await rrGetToken()
+      const url = `${RR_API}/writer/novels/chapters/getChaptersList?novel_ID=${encodeURIComponent(opts.novelId)}&page=1&per_page=500&sort_column=desc`
+      const res = await rrGet(url, rrAuthHeaders(token))
+      if (res.status !== 200) throw new Error(`HTTP ${res.status}: ${res.body.slice(0, 200)}`)
+      return { success: true, data: JSON.parse(res.body) }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle(
+    'readrealm-upload-chapter',
+    async (
+      _e,
+      opts: {
+        novelId: string
+        chapterId: string
+        title: string
+        content: string
+        price: number
+        publishDatetime: string
+        note: string
+      }
+    ) => {
+      try {
+        const token = await rrGetToken()
+        const isUpdate = opts.chapterId !== '0' && opts.chapterId !== ''
+        const endpoint = isUpdate ? 'chapterUpdate' : 'chapterCreate'
+        const url = `${RR_API}/writer/novels/chapters/${endpoint}`
+        const payload = JSON.stringify({
+          chapter_ID: opts.chapterId || '0',
+          novel_ID: opts.novelId,
+          chapter_title: opts.title,
+          chapter_content: opts.content,
+          chapter_note: opts.note,
+          chapter_price: opts.price,
+          chapter_publish: true,
+          chapter_publish_datetime: opts.publishDatetime
+        })
+        const method = isUpdate ? 'PUT' : 'POST'
+        const res = await rrPost(url, payload, {
+          ...rrAuthHeaders(token),
+          'Content-Type': 'application/json'
+        }, method)
+        if (res.status !== 200 && res.status !== 201)
+          throw new Error(`HTTP ${res.status}: ${res.body.slice(0, 300)}`)
+        return { success: true }
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  )
 
   // ── Auto-start health check on app initialization ─────────────────────────
   startHealthCheck()
