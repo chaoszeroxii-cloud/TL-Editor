@@ -19,8 +19,14 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { Tooltip } from './components/common/Tooltip'
 import { GlossaryEditor } from './components/GlossaryEditor'
 import { AudioPlayer } from './components/AudioPlayer'
-import { TerminalPanel } from './components/Terminal'
-import { AITranslatePanel } from './components/AITranslatePanel'
+import { TtsPopover } from './components/Tts/TtsPopover'
+import { TtsChip } from './components/Tts/TtsChip'
+import { useTtsGen } from './components/Tts/useTtsGen'
+import { AIChatPanel } from './components/AIChatPanel'
+import { usePendingDiffs } from './components/AIChatPanel/usePendingDiffs'
+import { useProjectMemory } from './components/AIChatPanel/useProjectMemory'
+import { computeHunks } from './components/AIChatPanel/anchorMatch'
+import type { PendingLineEdit } from './components/AIChatPanel/types'
 import { Mp3ToMp4 } from './components/Mp3ToMp4'
 import { MergeAudioPanel } from './components/MergeAudioPanel'
 import { ReadRealmPanel } from './components/ReadRealmPanel'
@@ -328,16 +334,6 @@ export default function App(): JSX.Element {
     app.setStyleProfileOpen(true)
   }, [app])
 
-  const handleSelectAiWorkTab = useCallback(() => {
-    app.setStyleProfileOpen(false)
-    app.setAiPanelOpen(true)
-  }, [app])
-
-  const handleSelectAiProfileTab = useCallback(() => {
-    app.setAiPanelOpen(false)
-    app.setStyleProfileOpen(true)
-  }, [app])
-
   // ── Keyboard shortcuts — delegated to hook ✅ ────────────────────────────
   useKeyboardShortcuts({
     handleSave: files.handleSave,
@@ -415,43 +411,73 @@ export default function App(): JSX.Element {
     [files, setAiContent]
   )
 
+  // ── Shared AI staged-review state (drives both the chat panel queue AND the
+  //    inline ghost diffs in the editor) ───────────────────────────────────────
+  const getTgtForDiffs = useCallback(() => files.tgtContentRef.current, [files.tgtContentRef])
+  const projectMemory = useProjectMemory(app.rootDir)
+  const pendingDiffs = usePendingDiffs({
+    getTgt: getTgtForDiffs,
+    applyTgt: handleAiResult,
+    addGlossary: gls.handleAddAiEntries,
+    saveMemory: projectMemory.save,
+    rootDir: app.rootDir,
+    chapterKey: files.tgtPath ?? files.srcPath ?? ''
+  })
+  const diffHunks = useMemo(
+    () =>
+      computeHunks(
+        files.tgtContent,
+        pendingDiffs.edits.filter((e): e is PendingLineEdit => e.kind === 'lines')
+      ),
+    [files.tgtContent, pendingDiffs.edits]
+  )
+
   // ── TTS Audio Handler ──────────────────────────────────────────────────────────
   const handlePlayTtsAudio = useCallback(
     (blob: Blob) => {
+      // Revoke the previous blob URL before replacing it — otherwise every TTS
+      // play leaks the audio bytes in renderer memory for the whole session.
+      const prev = files.mp3Path
+      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev)
       const blobUrl = URL.createObjectURL(blob)
       files.setMp3Path(blobUrl)
     },
     [files]
   )
 
-  const handlePushParaphrase = useCallback(
-    (orig: string, result: string) => {
-      const cur = files.tgtContentRef.current
-      const idx = cur.indexOf(orig)
-      if (idx !== -1) {
-        files.handleTgtChange(cur.slice(0, idx) + result + cur.slice(idx + orig.length))
-      } else {
-        files.handleTgtChange(result) // fallback
-      }
+  // Bumped to force the AudioPlayer to reload the file it's currently playing
+  // after a TTS re-gen overwrites it on disk (same path → cache-busted reload).
+  const [audioReloadToken, setAudioReloadToken] = useState(0)
+
+  const handleAudioSaved = useCallback(
+    (savedPath: string) => {
+      handleRefresh()
+      const cur = files.mp3Path
+      if (!cur || cur.startsWith('blob:')) return
+      const norm = (p: string): string => p.replace(/\\/g, '/').toLowerCase()
+      if (norm(cur) === norm(savedPath)) setAudioReloadToken((t) => t + 1)
     },
-    [files]
+    [handleRefresh, files.mp3Path]
   )
 
-  // ── Flag uncertain rows from AI ──────────────────────────────────────────
-  const [flaggedRows, setFlaggedRows] = useState<Map<number, string>>(new Map())
-  const handleFlagLines = useCallback((rows: Map<number, string>) => setFlaggedRows(rows), [])
+  // ── TTS generation engine (drives the floating popover + regen chip) ─────────
+  const ttsGen = useTtsGen({
+    config: app.ttsConfig,
+    tgtPath: files.tgtPath,
+    tgtContent: files.tgtContent,
+    getLineTone: (idx) => files.getLineTone(idx) as ToneName,
+    onPlayTtsAudio: handlePlayTtsAudio,
+    onAudioSaved: handleAudioSaved
+  })
 
-  // ── Send selected text to Paraphrase tab ─────────────────────────────────
-  const [paraphraseInput, setParaphraseInput] = useState<string | null>(null)
+  // ── Flag uncertain rows (set by future AI tooling; shown in DualView) ─────
+  const [flaggedRows] = useState<Map<number, string>>(new Map())
 
-  const handleSendToParaphrase = useCallback(
-    (text: string) => {
-      app.setStyleProfileOpen(false)
-      app.setAiPanelOpen(true)
-      setParaphraseInput(text)
-    },
-    [app]
-  )
+  // ── Context-menu "ส่งไป AI" → just open the chat panel ───────────────────
+  const handleSendToParaphrase = useCallback(() => {
+    app.setStyleProfileOpen(false)
+    app.setAiPanelOpen(true)
+  }, [app])
 
   const handleSaveTtsAudio = useCallback(
     async (audio: string | Uint8Array, defaultName: string) => {
@@ -575,14 +601,18 @@ export default function App(): JSX.Element {
           />
         )}
 
-        <div style={{ ...s.editorArea, flexDirection: 'column' }}>
+        <div style={{ ...s.editorArea, flexDirection: 'column', position: 'relative' }}>
           {hasAnyFile ? (
             <>
               {files.mp3Path && (
                 <AudioPlayer
                   key={files.mp3Path}
                   filePath={files.mp3Path}
-                  onClose={() => files.setMp3Path(null)}
+                  reloadToken={audioReloadToken}
+                  onClose={() => {
+                    if (files.mp3Path?.startsWith('blob:')) URL.revokeObjectURL(files.mp3Path)
+                    files.setMp3Path(null)
+                  }}
                 />
               )}
               <ErrorBoundary name="DualView">
@@ -616,6 +646,9 @@ export default function App(): JSX.Element {
                   setLineVoiceGender={files.setLineVoiceGender}
                   showToneControls={showToneControls}
                   flaggedRows={flaggedRows}
+                  diffHunks={diffHunks}
+                  onAcceptDiff={pendingDiffs.acceptEdit}
+                  onDenyDiff={pendingDiffs.denyEdit}
                 />
               </ErrorBoundary>
             </>
@@ -625,6 +658,23 @@ export default function App(): JSX.Element {
               hasFolder={!!app.rootDir}
               onNewFile={handleNewFile}
             />
+          )}
+
+          {/* TTS — popover + regen chip, pinned to the bottom-right of the editor (src) column */}
+          {app.terminalOpen && (
+            <ErrorBoundary name="TTSPanel">
+              <TtsPopover
+                gen={ttsGen}
+                config={app.ttsConfig}
+                onConfigChange={app.handleTtsConfigChange}
+                onClose={() => app.setTerminalOpen(false)}
+              />
+            </ErrorBoundary>
+          )}
+          {ttsGen.hasChipState && !app.terminalOpen && (
+            <ErrorBoundary name="TTSChip">
+              <TtsChip gen={ttsGen} onOpen={() => app.setTerminalOpen(true)} />
+            </ErrorBoundary>
           )}
         </div>
 
@@ -650,51 +700,22 @@ export default function App(): JSX.Element {
         )}
 
         {hasAnyFile && (app.aiPanelOpen || app.styleProfileOpen) && (
-          <ErrorBoundary name="AITranslatePanel">
-            <AITranslatePanel
+          <ErrorBoundary name="AIChatPanel">
+            <AIChatPanel
               srcContent={files.srcContent}
-              savedConfig={app.aiConfig}
-              onConfigChange={app.handleAiConfigChange}
+              tgtContent={files.tgtContent}
               glossary={gls.glossary}
               sourceFilePaths={gls.sourceFilePaths}
-              onAddEntries={gls.handleAddAiEntries}
-              onResult={handleAiResult}
-              stylePromptSnippet={styleProfile.getPromptSnippet()}
-              onPushParaphrase={handlePushParaphrase}
-              paraphraseInput={paraphraseInput}
-              onParaphraseInputConsumed={() => setParaphraseInput(null)}
-              onFlagLines={handleFlagLines}
-              profileActive={app.styleProfileOpen}
-              onSelectWorkTab={handleSelectAiWorkTab}
-              onSelectProfileTab={handleSelectAiProfileTab}
-              profilePanel={{
-                profile: styleProfile.profile,
-                isAnalyzing: styleProfile.isAnalyzing,
-                analyzeError: styleProfile.analyzeError,
-                apiKey: app.aiConfig.apiKey,
-                onAnalyze: (model: string) => styleProfile.analyze(app.aiConfig.apiKey, model),
-                onClearCorrections: styleProfile.clearCorrections,
-                onResetProfile: styleProfile.resetProfile
-              }}
+              aiConfig={app.aiConfig}
+              onConfigChange={app.handleAiConfigChange}
+              rootDir={app.rootDir}
+              pending={pendingDiffs}
+              memoryContent={projectMemory.content}
             />
           </ErrorBoundary>
         )}
       </div>
 
-      {/* TTS */}
-      {app.terminalOpen && (
-        <ErrorBoundary name="TTSPanel">
-          <TerminalPanel
-            onClose={() => app.setTerminalOpen(false)}
-            ttsConfig={app.ttsConfig}
-            onTtsConfigChange={app.handleTtsConfigChange}
-            tgtPath={files.tgtPath}
-            tgtContent={files.tgtContent}
-            getLineTone={(idx) => files.getLineTone(idx) as ToneName}
-            onPlayTtsAudio={handlePlayTtsAudio}
-          />
-        </ErrorBoundary>
-      )}
 
       {/* MP3 → MP4 Converter */}
       {app.mp3ConverterOpen && (

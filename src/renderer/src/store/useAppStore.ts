@@ -9,8 +9,8 @@
 
 import { useState, useCallback, useRef, Dispatch, SetStateAction, MutableRefObject } from 'react'
 import type { TreeNode, AITranslateConfig } from '../types'
-import type { TtsApiConfig } from '../components/Terminal/TTSApiTab'
-import { DEFAULT_TTS_CONFIG } from '../components/Terminal/ttsConstants'
+import type { TtsApiConfig } from '../components/Tts/ttsConstants'
+import { DEFAULT_TTS_CONFIG } from '../components/Tts/ttsConstants'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // useAppStore

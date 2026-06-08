@@ -5,6 +5,8 @@ import { FindBar } from './FindBar'
 import { ContextMenu } from './ContextMenu'
 import { TranslatePopup } from './TranslatePopup'
 import { VRowPair } from './VRowPair'
+import { DiffHunkBlock } from './DiffHunkBlock'
+import type { DiffHunk } from '../AIChatPanel/anchorMatch'
 import type { FindMatch, FindRange } from './findHighlight'
 import {
   filterUsedGlossariesFromRecord,
@@ -101,6 +103,10 @@ export interface DualViewProps {
   setLineVoiceGender?: (lineIndex: number, gender: VoiceGender) => void
   showToneControls?: boolean
   flaggedRows?: Map<number, string>
+  /** Staged AI edits mapped to current TGT row ranges (inline ghost diffs). */
+  diffHunks?: DiffHunk[]
+  onAcceptDiff?: (editId: string) => void
+  onDenyDiff?: (editId: string) => void
 }
 
 // ─── ColHeader ────────────────────────────────────────────────────────────────
@@ -216,7 +222,10 @@ export function DualView({
   getLineVoiceGender,
   setLineVoiceGender,
   showToneControls = false,
-  flaggedRows
+  flaggedRows,
+  diffHunks,
+  onAcceptDiff,
+  onDenyDiff
 }: DualViewProps): JSX.Element {
   // ── Split column ────────────────────────────────────────────────────────────
   const [splitPos, setSplitPos] = useState(50)
@@ -256,17 +265,61 @@ export function DualView({
   const activeWsRef = useRef<WebSocket | null>(null)
   const activeMsUrlRef = useRef<string | null>(null)
   const activeStreamRowRef = useRef<number | null>(null)
+  // Full MSE teardown needs handles to the live MediaSource, its SourceBuffer,
+  // and a per-stream AbortController that owns every listener — so stopping a
+  // stream actually releases the buffered MP3 (held in renderer media memory,
+  // off the JS heap, which is why it never showed up in performance.memory).
+  const activeMsRef = useRef<MediaSource | null>(null)
+  const activeSbRef = useRef<SourceBuffer | null>(null)
+  const streamAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     activeStreamRowRef.current = activeStreamRow
   }, [activeStreamRow])
 
   const stopStream = useCallback(() => {
+    // Detach every listener attached for this stream (sourceopen/updateend/ended)
+    // in one shot. Interrupted streams previously left {once:true} 'ended'
+    // listeners dangling on the shared <audio>, and the SourceBuffer was never
+    // released — so each play leaked ~50MB of buffered audio that never came back.
+    streamAbortRef.current?.abort()
+    streamAbortRef.current = null
+
     activeWsRef.current?.close()
     activeWsRef.current = null
+
+    // Release the SourceBuffer + MediaSource so the buffered MP3 (media memory,
+    // not the JS heap) is actually freed.
+    const ms = activeMsRef.current
+    const sb = activeSbRef.current
+    if (ms && sb) {
+      try {
+        if (sb.updating) sb.abort()
+      } catch {
+        /* ignore */
+      }
+      try {
+        ms.removeSourceBuffer(sb)
+      } catch {
+        /* ignore */
+      }
+    }
+    if (ms) {
+      try {
+        if (ms.readyState === 'open') ms.endOfStream()
+      } catch {
+        /* ignore */
+      }
+    }
+    activeSbRef.current = null
+    activeMsRef.current = null
+
     if (audioRef.current) {
       audioRef.current.pause()
-      audioRef.current.src = ''
+      // removeAttribute + load() forces the element to drop its reference to the
+      // detached MediaSource (src = '' alone can keep it pinned in memory).
+      audioRef.current.removeAttribute('src')
+      audioRef.current.load()
     }
     if (activeMsUrlRef.current) {
       URL.revokeObjectURL(activeMsUrlRef.current)
@@ -284,10 +337,9 @@ export function DualView({
       })
       setTtsBytes(null)
       setTtsBase64(null)
-      activeWsRef.current?.close()
-      if (activeMsUrlRef.current) URL.revokeObjectURL(activeMsUrlRef.current)
+      stopStream()
     }
-  }, [])
+  }, [stopStream])
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     const sel = window.getSelection()?.toString().trim()
@@ -342,6 +394,9 @@ export function DualView({
         const ms = new MediaSource()
         const msUrl = URL.createObjectURL(ms)
         activeMsUrlRef.current = msUrl
+        activeMsRef.current = ms
+        const ctrl = new AbortController()
+        streamAbortRef.current = ctrl
 
         const audio = audioRef.current!
         audio.volume = ttsConfig.playbackVolume ?? 0.35
@@ -361,6 +416,7 @@ export function DualView({
               stopStream()
               return
             }
+            activeSbRef.current = sb
 
             const queue: ArrayBuffer[] = []
             let wsEnded = false
@@ -376,16 +432,22 @@ export function DualView({
               }
             }
 
-            sb.addEventListener('updateend', () => {
-              appending = false
-              if (wsEnded && queue.length === 0) {
-                try {
-                  if (ms.readyState === 'open') ms.endOfStream()
-                } catch {}
-              } else {
-                flush()
-              }
-            })
+            sb.addEventListener(
+              'updateend',
+              () => {
+                appending = false
+                if (wsEnded && queue.length === 0) {
+                  try {
+                    if (ms.readyState === 'open') ms.endOfStream()
+                  } catch {
+                    /* ignore */
+                  }
+                } else {
+                  flush()
+                }
+              },
+              { signal: ctrl.signal }
+            )
 
             const ws = new WebSocket(wsUrl)
             ws.binaryType = 'arraybuffer'
@@ -419,7 +481,9 @@ export function DualView({
                   if (!appending && queue.length === 0 && ms.readyState === 'open') {
                     try {
                       ms.endOfStream()
-                    } catch {}
+                    } catch {
+                      /* ignore */
+                    }
                   }
                 } else if (event.data.startsWith('ERROR:')) {
                   setTtsError(event.data.slice(7).trim())
@@ -437,19 +501,17 @@ export function DualView({
               if (activeWsRef.current === ws) activeWsRef.current = null
             }
           },
-          { once: true }
+          { once: true, signal: ctrl.signal }
         )
 
         audio.addEventListener(
           'ended',
           () => {
-            if (activeMsUrlRef.current === msUrl) {
-              URL.revokeObjectURL(msUrl)
-              activeMsUrlRef.current = null
-              setActiveStreamRow(null)
-            }
+            // Natural finish: tear down the same way as an explicit stop so the
+            // buffered audio is released instead of lingering for the session.
+            if (activeMsUrlRef.current === msUrl) stopStream()
           },
-          { once: true }
+          { once: true, signal: ctrl.signal }
         )
 
         return
@@ -544,11 +606,22 @@ export function DualView({
   const rowIndexes = useMemo(() => Array.from({ length: rowCount }, (_, i) => i), [rowCount])
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  // Map every TGT row covered by a staged AI edit → its hunk (inline ghost diffs).
+  const coveredRowToHunk = useMemo(() => {
+    const covered = new Map<number, DiffHunk>()
+    for (const h of diffHunks ?? []) {
+      for (let r = h.startRow; r <= h.endRow; r++) covered.set(r, h)
+    }
+    return covered
+  }, [diffHunks])
+
   const scrollIntoView = useCallback((i: number) => {
     const el = scrollRef.current
     if (!el) return
-    const rows = el.querySelectorAll<HTMLElement>('[data-row]')
-    const target = rows[i]
+    // Prefer attribute lookup (robust when some rows are collapsed into a diff block)
+    const target =
+      el.querySelector<HTMLElement>(`[data-row-index="${i}"]`) ??
+      el.querySelectorAll<HTMLElement>('[data-row]')[i]
     if (!target) return
     const { top, bottom } = target.getBoundingClientRect()
     const { top: cTop, bottom: cBottom } = el.getBoundingClientRect()
@@ -921,6 +994,31 @@ export function DualView({
       >
         <div>
           {rowIndexes.map((i) => {
+            const coverHunk = coveredRowToHunk.get(i)
+            const editingInHunk =
+              !!coverHunk &&
+              editingRow !== null &&
+              editingRow >= coverHunk.startRow &&
+              editingRow <= coverHunk.endRow
+
+            // Read-only ghost block — only when not actively editing within the range
+            // (live-edit guard: while the user types in a covered row, keep it a normal
+            // editable row with just a faint warning; overlay appears on blur).
+            if (coverHunk && !editingInHunk) {
+              if (i !== coverHunk.startRow) return null
+              return (
+                <DiffHunkBlock
+                  key={`hunk-${coverHunk.editId}`}
+                  hunk={coverHunk}
+                  srcLines={cleanSrcRows.slice(coverHunk.startRow, coverHunk.endRow + 1)}
+                  startRowNum={coverHunk.startRow + 1}
+                  splitPos={splitPos}
+                  onAccept={() => onAcceptDiff?.(coverHunk.editId)}
+                  onDeny={() => onDenyDiff?.(coverHunk.editId)}
+                />
+              )
+            }
+
             const rowFind = findByRow.get(i)
             const currentTone = getLineTone ? (getLineTone(i) as ToneName) : 'normal'
             const currentVoiceGender: VoiceGender = (getLineVoiceGender?.(i) ||
@@ -970,6 +1068,7 @@ export function DualView({
                 onPlayRow={handlePlayRow}
                 isStreaming={activeStreamRow === i}
                 flagNote={flaggedRows?.get(i)}
+                diffPending={!!coverHunk}
               />
             )
           })}

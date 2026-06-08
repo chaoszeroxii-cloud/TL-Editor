@@ -261,7 +261,6 @@ export function EntryForm({
   const [th, setTh] = useState(initial.th ?? '')
   const [alts, setAlts] = useState<string[]>(initial.alt ?? [])
   const [note, setNote] = useState(initial.note ?? '')
-  const [type] = useState<string>(initial.type ?? availableTypes[0] ?? 'term')
   const [selectedPath, setSelectedPath] = useState<string[]>(initial.path ?? [])
 
   const format = targetFile ? sourceFileFormats[targetFile] : undefined
@@ -281,7 +280,7 @@ export function EntryForm({
     const finalPath = isNested
       ? selectedPath.filter(Boolean).length > 0
         ? selectedPath.filter(Boolean)
-        : [type]
+        : [availableTypes[0] ?? 'other']
       : undefined
     const cleanAlts = alts.map((a) => a.trim()).filter(Boolean)
     onSubmit(
@@ -289,13 +288,24 @@ export function EntryForm({
         src: src.trim(),
         th: th.trim(),
         alt: cleanAlts.length ? cleanAlts : undefined,
-        type: isFlat ? 'other' : type,
         note: !isFlat && note.trim() ? note.trim() : undefined,
         path: finalPath
       },
       targetFile
     )
-  }, [canSubmit, isNested, isFlat, selectedPath, type, alts, src, th, note, targetFile, onSubmit])
+  }, [
+    canSubmit,
+    isNested,
+    isFlat,
+    selectedPath,
+    availableTypes,
+    alts,
+    src,
+    th,
+    note,
+    targetFile,
+    onSubmit
+  ])
 
   // ── Ctrl+Enter on any input/select inside the form ────────────────────────
   const handleKeyDown = useCallback(

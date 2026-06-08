@@ -3,6 +3,7 @@ import { app, BrowserWindow, session, protocol } from 'electron'
 import { join } from 'path'
 import crypto from 'crypto'
 import { stat } from 'fs/promises'
+import { appendFileSync } from 'fs'
 import { extname } from 'path'
 import { Readable } from 'stream'
 
@@ -11,6 +12,21 @@ import { registerFsHandlers } from './ipc/fs'
 import { registerDialogHandlers } from './ipc/dialog'
 import { registerExternalHandlers } from './ipc/external'
 import { assertPathAllowed } from './ipc/pathAccess'
+
+// ─── Crash diagnostics ────────────────────────────────────────────────────────
+// "Black screen after long use" is almost always a process death (renderer OOM
+// or GPU crash) that currently happens silently. Record the reason so it can be
+// confirmed, written to <userData>/crash.log so it survives even in a packaged
+// build (no terminal to see console output).
+function logCrash(tag: string, info: Record<string, unknown>): void {
+  const line = `[${new Date().toISOString()}] ${tag} ${JSON.stringify(info)}\n`
+  console.error('[crash]', line.trim())
+  try {
+    appendFileSync(join(app.getPath('userData'), 'crash.log'), line)
+  } catch {
+    /* best effort — never let logging throw */
+  }
+}
 
 // ─── Audio protocol — must be registered BEFORE app.ready ─────────────────────
 // Registers a custom `audio://local/<encoded-path>` scheme so the AudioPlayer can
@@ -58,7 +74,31 @@ function createWindow(): void {
   } else {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  // If the renderer is killed (commonly OOM after long use), log the reason and
+  // auto-reload so the user isn't stranded on a black window. The renderer state
+  // is already gone at this point, so reloading loses nothing further.
+  win.webContents.on('render-process-gone', (_e, details) => {
+    logCrash('renderer-gone', { reason: details.reason, exitCode: details.exitCode })
+    if (details.reason !== 'clean-exit' && !win.isDestroyed()) {
+      win.webContents.reload()
+    }
+  })
+  win.webContents.on('unresponsive', () => logCrash('renderer-unresponsive', {}))
+  win.webContents.on('responsive', () => logCrash('renderer-responsive', {}))
 }
+
+// GPU / utility process death also blanks the window — record it (a GPU crash
+// won't fire render-process-gone, so this is a separate signal).
+app.on('child-process-gone', (_e, details) => {
+  if (details.reason !== 'clean-exit') {
+    logCrash('child-process-gone', {
+      type: details.type,
+      reason: details.reason,
+      exitCode: details.exitCode
+    })
+  }
+})
 // ─── GPU fallback (for stability during dev) ──────────────────────────────────
 // If GPU process keeps crashing, set GPU_DISABLED=1 env var to disable hardware accel.
 // Usage: GPU_DISABLED=1 npm run dev

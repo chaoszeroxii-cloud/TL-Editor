@@ -3,8 +3,8 @@ import type { GlossaryEntry } from '../../types'
 
 describe('highlight utility', () => {
   const glossary: GlossaryEntry[] = [
-    { src: 'hello', th: 'สวัสดี', type: 'other' },
-    { src: 'world', th: 'โลก', type: 'other' }
+    { src: 'hello', th: 'สวัสดี' },
+    { src: 'world', th: 'โลก' }
   ]
 
   describe('tokenize', () => {

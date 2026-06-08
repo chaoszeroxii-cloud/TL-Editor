@@ -527,7 +527,7 @@ export function ReadRealmPanel({ onClose }: ReadRealmPanelProps): JSX.Element {
                         {isUpdate ? '✎' : '+'}
                       </span>
                       <span style={{ ...s.coinBadge, ...(isPaid ? s.coinPaid : s.coinFree) }}>
-                        {isPaid ? `💎 ${coinPrice}c` : '🆓'}
+                        {isPaid ? `${coinPrice}c` : 'ฟรี'}
                       </span>
                       {f.status === 'uploading' && <span style={{ fontSize: 11, color: 'var(--accent)' }}>↑</span>}
                       {f.status === 'ok' && <span style={{ fontSize: 11, color: 'var(--hl-teal)' }}>✓</span>}

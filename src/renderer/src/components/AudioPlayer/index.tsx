@@ -32,6 +32,12 @@ interface AudioPlayerProps {
   autoPlay?: boolean
   compact?: boolean
   onTimeUpdate?: (current: number, duration: number) => void
+  /**
+   * Bump this to force an in-place reload of the same file — e.g. when TTS
+   * re-gen overwrites the MP3 currently loaded. Used to cache-bust the URL so
+   * the browser fetches the fresh bytes instead of the cached old audio.
+   */
+  reloadToken?: number
 }
 
 function fmtTime(s: number): string {
@@ -49,9 +55,12 @@ function clamp(v: number, lo: number, hi: number): number {
 // ── Build a streamable src URL for a given filePath ────────────────────────────
 // blob:  → return as-is (TTS output already in memory)
 // other  → audio://local/<percent-encoded-path>  (served by main protocol handler)
-function toAudioSrc(filePath: string): string {
+function toAudioSrc(filePath: string, reloadToken = 0): string {
   if (filePath.startsWith('blob:')) return filePath
-  return `audio://local/${encodeURIComponent(filePath)}`
+  const base = `audio://local/${encodeURIComponent(filePath)}`
+  // The protocol handler reads only url.pathname, so a `?v=` query is ignored
+  // for path resolution but makes the browser treat it as a fresh resource.
+  return reloadToken > 0 ? `${base}?v=${reloadToken}` : base
 }
 
 export const AudioPlayer = memo(function AudioPlayer({
@@ -59,7 +68,8 @@ export const AudioPlayer = memo(function AudioPlayer({
   onClose,
   autoPlay = false,
   compact = false,
-  onTimeUpdate
+  onTimeUpdate,
+  reloadToken = 0
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
@@ -80,6 +90,13 @@ export const AudioPlayer = memo(function AudioPlayer({
   useEffect(() => {
     onTimeUpdateRef.current = onTimeUpdate
   }, [onTimeUpdate])
+
+  // Track playback state + position across reloads so an in-place reload (same
+  // file, e.g. TTS re-gen) can restore the position and resume playing, while a
+  // fresh file selection starts at 0 paused.
+  const wasPlayingRef = useRef(false)
+  const lastTimeRef = useRef(0)
+  const prevFilePathRef = useRef<string | null>(null)
 
   // ── Load ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -107,7 +124,7 @@ export const AudioPlayer = memo(function AudioPlayer({
     au.addEventListener('loadeddata', onLoadedData)
 
     // No async IPC needed — just set the src and let the protocol handler stream it.
-    const src = toAudioSrc(filePath)
+    const src = toAudioSrc(filePath, reloadToken)
     au.src = src
     au.volume = volume
     au.muted = muted
@@ -128,13 +145,33 @@ export const AudioPlayer = memo(function AudioPlayer({
     // Stop polling after 10 seconds
     const pollTimeout = setTimeout(() => clearInterval(pollInterval), 10000)
 
-    if (autoPlay) {
-      au.addEventListener('canplay', () => au.play(), { once: true })
+    // In-place reload (same file — e.g. TTS re-gen bumped reloadToken): restore
+    // the previous position and resume if it was playing. A brand-new file
+    // selection starts at 0, paused (autoPlay still honored).
+    const sameFile = prevFilePathRef.current === filePath
+    prevFilePathRef.current = filePath
+    const resumeAt = sameFile ? lastTimeRef.current : 0
+    const resumePlay = autoPlay || (sameFile && wasPlayingRef.current)
+    if (resumeAt > 0 || resumePlay) {
+      au.addEventListener(
+        'canplay',
+        () => {
+          if (resumeAt > 0 && isFinite(au.duration) && au.duration > 0) {
+            au.currentTime = Math.min(resumeAt, au.duration)
+            setCurrent(au.currentTime)
+          }
+          if (resumePlay) au.play().catch(() => {})
+        },
+        { once: true }
+      )
     }
 
     // Cleanup: for blob: URLs created by TTS panel we do NOT revoke here —
     // the parent component (DualView) owns that blob and revokes it on close.
     return () => {
+      // Capture state BEFORE pausing so an in-place reload can restore it.
+      wasPlayingRef.current = !au.paused
+      lastTimeRef.current = au.currentTime
       clearInterval(pollInterval)
       clearTimeout(pollTimeout)
       au.pause()
@@ -146,7 +183,7 @@ export const AudioPlayer = memo(function AudioPlayer({
       setCurrent(0)
       setDuration(0)
     }
-  }, [filePath, autoPlay, volume, muted])
+  }, [filePath, autoPlay, volume, muted, reloadToken])
 
   // ── Tick ──────────────────────────────────────────────────────────────────
   const tick = useCallback(() => {

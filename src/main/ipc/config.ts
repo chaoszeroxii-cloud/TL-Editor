@@ -15,6 +15,9 @@ export interface AppConfig {
   aiApiKey?: string
   aiPromptPath?: string
   aiGlossaryPath?: string
+  aiReasoningEffort?: string
+  aiPromptEnabled?: boolean
+  aiGlossaryExcludeFiles?: string[]
   // TTS API config
   ttsApiUrl?: string
   ttsApiKey?: string
@@ -53,6 +56,14 @@ export async function loadApiKey(account: string): Promise<string | null> {
   } catch (err) {
     console.error(`Failed to load API key from keychain: ${err}`)
     return null
+  }
+}
+
+export async function deleteApiKey(account: string): Promise<void> {
+  try {
+    await keytar.deletePassword(SERVICE_NAME, account)
+  } catch (err) {
+    console.error(`Failed to delete API key from keychain: ${err}`)
   }
 }
 
@@ -105,6 +116,9 @@ export function registerConfigHandlers(): void {
       aiApiKey,
       aiPromptPath: cfg.aiPromptPath ?? '',
       aiGlossaryPath: cfg.aiGlossaryPath ?? '',
+      aiReasoningEffort: cfg.aiReasoningEffort ?? 'off',
+      aiPromptEnabled: cfg.aiPromptEnabled ?? false,
+      aiGlossaryExcludeFiles: cfg.aiGlossaryExcludeFiles ?? null,
       // TTS fields
       ttsApiUrl: cfg.ttsApiUrl ?? 'https://novelttsapi-0mv2.onrender.com',
       ttsApiKey,
@@ -131,9 +145,12 @@ export function registerConfigHandlers(): void {
   ipcMain.handle('save-config-patch', async (_e, patch: Partial<AppConfig>) => {
     approveConfigPaths(patch)
 
-    // Save API keys to keychain if included in patch
-    if (patch.aiApiKey) {
-      await saveApiKey('openrouter-key', patch.aiApiKey)
+    // Save API keys to keychain if included in patch.
+    // Present-but-empty (=== '') means an explicit clear → delete from keychain,
+    // otherwise a reload would re-load the stale key. (undefined = not in patch → leave alone.)
+    if (patch.aiApiKey !== undefined) {
+      if (patch.aiApiKey) await saveApiKey('openrouter-key', patch.aiApiKey)
+      else await deleteApiKey('openrouter-key')
     }
     if (patch.ttsApiKey) {
       await saveApiKey('novel-tts-key', patch.ttsApiKey)

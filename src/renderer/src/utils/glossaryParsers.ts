@@ -44,7 +44,7 @@ export function parseFlatJson(raw: Record<string, string>): GlossaryEntry[] {
   const entries: GlossaryEntry[] = []
   for (const [src, th] of Object.entries(raw)) {
     if (!src.trim() || !th.trim()) continue
-    entries.push({ src, th: th.trim(), type: 'other' })
+    entries.push({ src, th: th.trim() })
   }
   return entries
 }
@@ -70,11 +70,10 @@ function parseNestedNode(
   format: GlossaryFormat
 ): void {
   if (!key.trim() || key.startsWith('_')) return
-  const topType = path[0] ?? 'other'
 
   if (typeof value === 'string') {
     if (!value.trim()) return
-    result.push({ src: key, th: value, type: topType, path: [...path] })
+    result.push({ src: key, th: value, path: [...path] })
   } else if (Array.isArray(value)) {
     const strs = value.filter((v): v is string => typeof v === 'string' && !!v.trim())
     if (strs.length > 0)
@@ -82,7 +81,6 @@ function parseNestedNode(
         src: key,
         th: strs[0],
         alt: strs.length > 1 ? strs.slice(1) : undefined,
-        type: topType,
         path: [...path]
       })
   } else if (value !== null && typeof value === 'object') {
@@ -109,7 +107,6 @@ function parseNestedNode(
         th,
         alt,
         note: noteParts.length ? noteParts.join(' · ') : undefined,
-        type: topType,
         path: [...path]
       })
       // Recursively parse sub-keys, excluding metadata keys (mutate path for O(n) instead of O(n²))
@@ -120,7 +117,7 @@ function parseNestedNode(
         if (typeof subVal === 'object' && subVal !== null && !Array.isArray(subVal))
           parseNestedNode(subKey, subVal, path, result, format)
         else if (typeof subVal === 'string' && subVal.trim())
-          result.push({ src: subKey, th: subVal, type: topType, path: [...path] })
+          result.push({ src: subKey, th: subVal, path: [...path] })
       }
       path.pop() // Remove from path (backtrack)
     } else if (isSinglePairBuff(obj)) {
@@ -130,7 +127,6 @@ function parseNestedNode(
           src: key,
           th: thKey,
           note: typeof desc === 'string' && desc.trim() ? desc : undefined,
-          type: topType,
           path: [...path]
         })
     } else {

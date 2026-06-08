@@ -10,7 +10,7 @@ import {
 } from 'react'
 import type { GlossaryEntry } from '../../types'
 import type { MatchedEntry } from '../../hooks/useAutocomplete'
-import { tokenize, HL_COLORS } from '../../utils/highlight'
+import { tokenize, HL_COLORS, categoryOf } from '../../utils/highlight'
 import { showTooltip, hideTooltip } from '../common/tooltipUtils'
 import { GlossaryAutocomplete } from '../common/GlossaryAutocomplete'
 import { ToneSelector } from '../ToneSelector'
@@ -81,7 +81,7 @@ const HL = memo(function HL({
   onEnter: (e: GlossaryEntry, x: number, y: number) => void
   onLeave: () => void
 }) {
-  const c = HL_COLORS[seg.entry.type]
+  const c = HL_COLORS[categoryOf(seg.entry)]
   return (
     <span
       style={{
@@ -179,6 +179,14 @@ export const Row = memo(function Row({
   const autocomplete = useAutocomplete(glossary)
   const [acModified, setAcModified] = useState(false)
 
+  // Resize the textarea to fit its content exactly (1 line by default, grows as needed).
+  // box-sizing is border-box, so scrollHeight (content + padding) omits the border —
+  // add it back via offsetHeight − clientHeight, otherwise the last line is clipped ~2px.
+  const autoResize = useCallback((ta: HTMLTextAreaElement): void => {
+    ta.style.height = 'auto'
+    ta.style.height = ta.scrollHeight + (ta.offsetHeight - ta.clientHeight) + 'px'
+  }, [])
+
   useEffect(() => {
     if (isEditing) {
       localUndoStack.current = []
@@ -202,8 +210,7 @@ export const Row = memo(function Row({
   useLayoutEffect(() => {
     if (!isEditing || !taRef.current) return
     const ta = taRef.current
-    ta.style.height = 'auto'
-    ta.style.height = ta.scrollHeight + 'px'
+    autoResize(ta)
     ta.focus()
     if (pendingCursor !== null) {
       const pos = Math.min(pendingCursor, ta.value.length)
@@ -223,7 +230,7 @@ export const Row = memo(function Row({
       ta.setSelectionRange(pos, pos)
     }
     ta.dataset.prev = ta.value
-  }, [isEditing, focusAtStart, navCol, navDir, pendingCursor])
+  }, [isEditing, focusAtStart, navCol, navDir, pendingCursor, autoResize])
 
   const getColOffset = (ta: HTMLTextAreaElement): number => {
     const before = ta.value.slice(0, ta.selectionStart)
@@ -306,8 +313,7 @@ export const Row = memo(function Row({
           const prev = localUndoStack.current.pop()!
           ta.value = prev
           ta.dataset.prev = prev
-          ta.style.height = 'auto'
-          ta.style.height = ta.scrollHeight + 'px'
+          autoResize(ta)
           ta.setSelectionRange(prev.length, prev.length)
         } else {
           // Only bubble to global undo when the row hasn't been modified
@@ -326,8 +332,7 @@ export const Row = memo(function Row({
           const next = localRedoStack.current.pop()!
           ta.value = next
           ta.dataset.prev = next
-          ta.style.height = 'auto'
-          ta.style.height = ta.scrollHeight + 'px'
+          autoResize(ta)
           ta.setSelectionRange(next.length, next.length)
         } else {
           if (e.currentTarget.value !== text) return
@@ -485,7 +490,7 @@ export const Row = memo(function Row({
               onLeave={hideTooltip}
             />
           )
-        const c = seg.entry ? HL_COLORS[seg.entry.type] : null
+        const c = seg.entry ? HL_COLORS[categoryOf(seg.entry)] : null
         return (
           <span
             key={si}
@@ -575,6 +580,7 @@ export const Row = memo(function Row({
           <>
             <textarea
               ref={taRef}
+              rows={1}
               defaultValue={text}
               onChange={(e) => {
                 const ta = e.currentTarget,
@@ -585,8 +591,7 @@ export const Row = memo(function Row({
                   localRedoStack.current = []
                   ta.dataset.prev = ta.value
                 }
-                ta.style.height = 'auto'
-                ta.style.height = ta.scrollHeight + 'px'
+                autoResize(ta)
               }}
               onBlur={handleBlur}
               onKeyDown={handleKeyDown}
@@ -596,14 +601,17 @@ export const Row = memo(function Row({
                 width: '100%',
                 padding: '5px 12px',
                 background: 'var(--bg2)',
-                border: '1px solid var(--accent)',
+                // outline (not border) for the focus frame — it has color but does NOT
+                // take layout space, so the edited row stays the same height as read-only.
+                border: 'none',
                 borderRadius: 0,
                 color: 'var(--text0)',
                 fontFamily: 'var(--font-ui)',
                 fontSize: 13,
                 lineHeight: 1.7,
                 resize: 'none',
-                outline: 'none',
+                outline: '1px solid var(--accent)',
+                outlineOffset: '-1px',
                 boxSizing: 'border-box',
                 height: 'auto',
                 minHeight: ROW_H + 'px',

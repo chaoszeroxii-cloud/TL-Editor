@@ -28,6 +28,15 @@ export const HL_COLORS: Record<string, ColorDef> = new Proxy({} as Record<string
   }
 }) as Record<string, ColorDef>
 
+/**
+ * The display/group category of a glossary entry = top of its path (nested
+ * glossary), falling back to 'other' for flat entries. Single source of truth
+ * for category — the old stored `type` field was redundant with path[0].
+ */
+export function categoryOf(entry: GlossaryEntry): string {
+  return entry.path?.[0] ?? 'other'
+}
+
 // ─── Segment types ────────────────────────────────────────────────────────────
 
 export type Segment =

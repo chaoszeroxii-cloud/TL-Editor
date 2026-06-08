@@ -15,8 +15,7 @@ describe('glossaryParsers', () => {
       expect(result).toHaveLength(2)
       expect(result[0]).toEqual({
         src: 'hello',
-        th: 'สวัสดี',
-        type: 'other'
+        th: 'สวัสดี'
       })
     })
 
@@ -41,7 +40,6 @@ describe('glossaryParsers', () => {
         src: 'greeting',
         th: 'สวัสดี',
         note: 'formal greeting',
-        type: 'other',
         path: []
       })
     })
@@ -82,8 +80,8 @@ describe('glossaryParsers', () => {
   describe('serializeFlatJson', () => {
     it('should serialize entries to flat JSON', () => {
       const entries = [
-        { src: 'hello', th: 'สวัสดี', type: 'other' as const },
-        { src: 'goodbye', th: 'ลาก่อน', type: 'other' as const }
+        { src: 'hello', th: 'สวัสดี' },
+        { src: 'goodbye', th: 'ลาก่อน' }
       ]
       const result = serializeFlatJson(entries)
       const parsed = JSON.parse(result)
@@ -94,7 +92,7 @@ describe('glossaryParsers', () => {
 
   describe('serializeToNested', () => {
     it('should serialize entries to nested JSON', () => {
-      const entries = [{ src: 'greeting', th: 'สวัสดี', type: 'greeting', path: [] }]
+      const entries = [{ src: 'greeting', th: 'สวัสดี', path: [] }]
       const result = serializeToNested(entries, DEFAULT_GLOSSARY_FORMAT)
       const parsed = JSON.parse(result)
       // When no note/alt, just the translation string is stored
@@ -106,7 +104,6 @@ describe('glossaryParsers', () => {
         {
           src: 'greeting',
           th: 'สวัสดี',
-          type: 'greeting',
           note: 'formal greeting',
           path: []
         }
@@ -123,7 +120,6 @@ describe('glossaryParsers', () => {
         {
           src: 'hello',
           th: 'สวัสดี',
-          type: 'other',
           path: ['chapter1', 'section1']
         }
       ]
@@ -137,12 +133,12 @@ describe('glossaryParsers', () => {
 
   describe('hasNestedPaths', () => {
     it('should return true if entries have paths', () => {
-      const entries = [{ src: 'hello', th: 'สวัสดี', type: 'other', path: ['chapter1'] }]
+      const entries = [{ src: 'hello', th: 'สวัสดี', path: ['chapter1'] }]
       expect(hasNestedPaths(entries)).toBe(true)
     })
 
     it('should return false if entries have no paths', () => {
-      const entries = [{ src: 'hello', th: 'สวัสดี', type: 'other' }]
+      const entries = [{ src: 'hello', th: 'สวัสดี' }]
       expect(hasNestedPaths(entries)).toBe(false)
     })
   })

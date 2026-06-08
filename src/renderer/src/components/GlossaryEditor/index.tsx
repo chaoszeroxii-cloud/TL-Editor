@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, JSX } from 'react'
 import type { GlossaryEntry, OpenGlossaryFile } from '../../types'
-import { IcoEditFile } from '../common/icons'
+import { categoryOf } from '../../utils/highlight'
+import { IcoEditFile, IcoSave, IcoTrash } from '../common/icons'
 
 export interface GlossaryEditorProps {
   file: OpenGlossaryFile
@@ -40,7 +41,7 @@ export function GlossaryEditor({
     setEditSrc(entries[real].src)
     setEditTh(entries[real].th)
     setEditNote(entries[real].note ?? '')
-    setEditType(entries[real].type)
+    setEditType(categoryOf(entries[real]))
   }
 
   const commitEdit = (): void => {
@@ -51,7 +52,13 @@ export function GlossaryEditor({
     }
     setEntries((prev) => {
       const next = [...prev]
-      next[editingIdx] = { src: editSrc, th: editTh, type: editType, note: editNote || undefined }
+      // Category is stored as the top of the path (type field removed).
+      next[editingIdx] = {
+        src: editSrc,
+        th: editTh,
+        note: editNote || undefined,
+        path: editType.trim() ? [editType.trim()] : undefined
+      }
       return next
     })
     setIsDirty(true)
@@ -137,7 +144,7 @@ export function GlossaryEditor({
                 disabled={isSaving}
                 title="บันทึก (Ctrl+S)"
               >
-                {isSaving ? '…' : '💾'}
+                {isSaving ? '…' : <IcoSave size={13} stroke="currentColor" />}
               </button>
             )}
             <button
@@ -286,7 +293,7 @@ export function GlossaryEditor({
                         width: 6,
                         height: 6,
                         borderRadius: '50%',
-                        background: TYPE_COLOR[entry.type],
+                        background: TYPE_COLOR[categoryOf(entry)] ?? 'var(--text2)',
                         flexShrink: 0
                       }}
                     />
@@ -297,7 +304,7 @@ export function GlossaryEditor({
                         fontFamily: 'var(--font-mono)'
                       }}
                     >
-                      {entry.type}
+                      {categoryOf(entry)}
                     </span>
                   </span>
                   <span
@@ -323,7 +330,7 @@ export function GlossaryEditor({
                       </>
                     ) : (
                       <button style={s.btnDelete} onClick={() => setConfirmDelete(fi)} title="ลบ">
-                        🗑
+                        <IcoTrash size={13} stroke="currentColor" />
                       </button>
                     )}
                   </div>

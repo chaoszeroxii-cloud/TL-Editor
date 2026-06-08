@@ -1,6 +1,16 @@
-import { useState, useRef, useCallback, Dispatch, SetStateAction, MutableRefObject } from 'react'
+import {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  Dispatch,
+  SetStateAction,
+  MutableRefObject
+} from 'react'
 
 const UNDO_LIMIT = 200
+// Debounce before auto-saving to disk after the user stops typing.
+const AUTOSAVE_MS = 1500
 
 // ─────────────────────────────────────────────────────────────────────────────
 // useFileStore
@@ -234,6 +244,23 @@ export function useFileStore(): FileStore {
     setSrcIsDirty(false)
     _setSaving(false)
   }, [_setSaving])
+
+  // ── Auto-save (debounced) — write to disk shortly after edits stop ──────────
+  useEffect(() => {
+    if (!isDirty || !tgtPath) return
+    const t = setTimeout(() => {
+      void handleSave()
+    }, AUTOSAVE_MS)
+    return () => clearTimeout(t)
+  }, [tgtContent, isDirty, tgtPath, handleSave])
+
+  useEffect(() => {
+    if (!srcIsDirty || !srcPath) return
+    const t = setTimeout(() => {
+      void handleSrcSave()
+    }, AUTOSAVE_MS)
+    return () => clearTimeout(t)
+  }, [srcContent, srcIsDirty, srcPath, handleSrcSave])
 
   const handleCopySrc = useCallback(() => {
     navigator.clipboard.writeText(srcContentRef.current)

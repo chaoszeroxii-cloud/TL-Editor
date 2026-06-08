@@ -10,7 +10,6 @@ export interface TreeNode {
 export interface GlossaryEntry {
   src: string
   th: string
-  type: string
   note?: string
   alt?: string[]
   path?: string[]

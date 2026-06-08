@@ -72,12 +72,12 @@ src/
 │       │   ├── NewEntryReview.tsx       ★ NEW — pending entries review/select UI
 │       │   └── index.tsx                ★ NEW — panel shell (config + translate + review)
 │       │
-│       ├── Terminal/                    ★ NEW folder
+│       ├── Tts/                         ★ TTS popover + regen chip (was "Terminal")
 │       │   ├── exports.ts               ← barrel
-│       │   ├── OutputView.tsx           ★ NEW — stdout/stderr line renderer
-│       │   ├── ScriptPathInput.tsx      ★ NEW — path input + pinned/history dropdown
-│       │   ├── PythonTab.tsx            ★ NEW — full python runner UI (~300 lines)
-│       │   └── index.tsx                ★ NEW — panel shell (resize, tabs, terminal input)
+│       │   ├── useTtsGen.ts             — generation engine + per-line cache (App-level hook)
+│       │   ├── TtsPopover.tsx           — floating draggable control surface
+│       │   ├── TtsChip.tsx              — floating progress / ↺ regen chip
+│       │   └── ttsConstants.ts          — TtsApiConfig + DEFAULT_TTS_CONFIG
 │       │
 │       ├── AudioPlayer/                 ★ NEW folder
 │       │   ├── exports.ts               ← barrel
@@ -124,13 +124,13 @@ import { extractNewEntries } from './components/AITranslatePanel/extractNewEntri
 import { NewEntryReview } from './components/AITranslatePanel/NewEntryReview'
 ```
 
-### Terminal
+### Tts
 
 ```ts
-import { TerminalPanel } from './components/Terminal'
-// subcomponents:
-import { OutputView } from './components/Terminal/OutputView'
-import type { OutputLine } from './components/Terminal/OutputView'
+import { TtsPopover } from './components/Tts/TtsPopover'
+import { TtsChip } from './components/Tts/TtsChip'
+import { useTtsGen } from './components/Tts/useTtsGen'
+import { DEFAULT_TTS_CONFIG, type TtsApiConfig } from './components/Tts/ttsConstants'
 ```
 
 ### AudioPlayer

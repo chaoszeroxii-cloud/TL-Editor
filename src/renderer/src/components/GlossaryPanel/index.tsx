@@ -1,6 +1,7 @@
 import { useState, memo, useMemo, useCallback, useEffect, useRef, JSX } from 'react'
 import type { GlossaryEntry, GlossaryFileFormat } from '../../types'
 import { serializeGlossary, hasNestedPaths, serializeToNested } from '../../utils/glossaryParsers'
+import { categoryOf } from '../../utils/highlight'
 import { EntryRow } from './EntryRow'
 import { EntryForm } from './EntryForm'
 import { DrillView } from './DrillView'
@@ -111,14 +112,14 @@ export const GlossaryPanel = memo(function GlossaryPanel({
     [glossary]
   )
   const availableTypes = useMemo(
-    () => Array.from(new Set(glossary.map((g) => g.type).filter(Boolean))).sort(),
+    () => Array.from(new Set(glossary.map((g) => categoryOf(g)))).sort(),
     [glossary]
   )
 
   const filtered = useMemo(
     () =>
       glossary.filter((g) => {
-        if (filter !== 'all' && g.type !== filter) return false
+        if (filter !== 'all' && categoryOf(g) !== filter) return false
         if (fileFilter !== 'all' && g._file !== fileFilter) return false
         if (
           debouncedSearch &&
@@ -404,12 +405,10 @@ export const GlossaryPanel = memo(function GlossaryPanel({
       >
         {[
           'all',
-          ...Array.from(new Set(glossary.map((g) => g.type)))
-            .filter(Boolean)
-            .sort()
+          ...Array.from(new Set(glossary.map((g) => categoryOf(g)))).sort()
         ].map((type) => {
           const count =
-            type === 'all' ? glossary.length : glossary.filter((g) => g.type === type).length
+            type === 'all' ? glossary.length : glossary.filter((g) => categoryOf(g) === type).length
           if (type !== 'all' && count === 0) return null
           const short = type.length > 11 ? type.slice(0, 10) + '…' : type
           const isActive = filter === type
@@ -447,7 +446,7 @@ export const GlossaryPanel = memo(function GlossaryPanel({
           const subCats = Array.from(
             new Set(
               glossary
-                .filter((g) => g.type === expandedType && g.path && g.path.length > 0)
+                .filter((g) => categoryOf(g) === expandedType && g.path && g.path.length > 0)
                 .map((g) => g.path![0])
             )
           ).sort()
@@ -496,7 +495,7 @@ export const GlossaryPanel = memo(function GlossaryPanel({
       {addMode && (
         <EntryForm
           title="NEW ENTRY"
-          initial={{ src: addInitialSrc, th: '', type: availableTypes[0] ?? 'term' }}
+          initial={{ src: addInitialSrc, th: '' }}
           onSubmit={(entry, targetFile) => handleAdd(entry, targetFile)}
           onCancel={() => {
             setAddMode(false)

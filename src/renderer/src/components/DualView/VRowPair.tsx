@@ -47,6 +47,8 @@ export interface VRowPairProps {
   onPlayRow?: (rowIndex: number, text: string) => void
   isStreaming?: boolean
   flagNote?: string
+  /** A staged AI edit is waiting on this row (shown faintly while it's being edited). */
+  diffPending?: boolean
 }
 
 export const VRowPair = memo(function VRowPair({
@@ -91,7 +93,8 @@ export const VRowPair = memo(function VRowPair({
   onVoiceGenderChange,
   onPlayRow,
   isStreaming = false,
-  flagNote
+  flagNote,
+  diffPending = false
 }: VRowPairProps): JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null)
   const [tgtHovered, setTgtHovered] = useState(false)
@@ -149,14 +152,22 @@ export const VRowPair = memo(function VRowPair({
       ref={wrapRef}
       data-row-index={rowIndex}
       data-row={rowIndex}
-      title={flagNote}
+      title={flagNote ?? (diffPending ? 'มี AI diff รอ review — พิมพ์ให้เสร็จก่อนค่อยแสดง' : undefined)}
       style={{
         display: 'flex',
         minHeight: ROW_H,
         borderBottom: '1px solid var(--border)',
         marginBottom: 2,
-        borderLeft: flagNote ? '3px solid var(--hl-gold)' : undefined,
-        background: flagNote ? 'rgba(184,154,80,0.04)' : undefined
+        borderLeft: flagNote
+          ? '3px solid var(--hl-gold)'
+          : diffPending
+            ? '3px solid rgba(91,138,240,0.5)'
+            : undefined,
+        background: flagNote
+          ? 'rgba(184,154,80,0.04)'
+          : diffPending
+            ? 'rgba(91,138,240,0.05)'
+            : undefined
       }}
     >
       <div

@@ -26,7 +26,6 @@ interface _TreeNode {
 interface _GlossaryEntry {
   src: string
   th: string
-  type: string
   note?: string
   alt?: string[]
   path?: string[]
@@ -40,6 +39,9 @@ interface _EnvConfig {
   aiApiKey: string
   aiPromptPath: string
   aiGlossaryPath: string
+  aiReasoningEffort: string
+  aiPromptEnabled: boolean
+  aiGlossaryExcludeFiles: string[] | null
   ttsApiUrl: string
   ttsApiKey: string
   ttsVoiceGender: string
@@ -65,6 +67,9 @@ interface _SaveConfigPayload {
   aiApiKey?: string
   aiPromptPath?: string
   aiGlossaryPath?: string
+  aiReasoningEffort?: string
+  aiPromptEnabled?: boolean
+  aiGlossaryExcludeFiles?: string[]
   ttsApiUrl?: string
   ttsApiKey?: string
   ttsVoiceGender?: string
@@ -109,6 +114,12 @@ interface ElectronAPI {
   readFileOptional: (filePath: string) => Promise<string | null>
   readImageDataUrl: (filePath: string) => Promise<string>
   writeFile: (filePath: string, content: string) => Promise<void>
+  /** Like writeFile but creates missing parent directories first (mkdir -p). */
+  writeFileEnsureDir: (filePath: string, content: string) => Promise<void>
+  /** List file names (files only, non-recursive) in a directory; [] if missing. */
+  listDir: (dirPath: string) => Promise<string[]>
+  /** Delete a single file; no-op if it doesn't exist. */
+  deleteFile: (filePath: string) => Promise<void>
   moveFile: (oldPath: string, newPath: string) => Promise<void>
   /** @legacy Use audio:// protocol instead for local audio files */
   readAudioBuffer: (filePath: string) => Promise<string>
@@ -135,8 +146,9 @@ interface ElectronAPI {
   openrouterChat: (opts: {
     apiKey: string
     model: string
-    messages: { role: string; content: string }[]
+    messages: Array<{ role: string; content: string | null; [key: string]: unknown }>
     tools?: object[]
+    reasoning?: { effort?: string; max_tokens?: number; exclude?: boolean; enabled?: boolean }
     stream?: boolean
     requestId?: string
   }) => Promise<{ requestId: string; data: string }>

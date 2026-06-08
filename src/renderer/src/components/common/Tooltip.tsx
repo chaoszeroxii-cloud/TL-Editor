@@ -1,6 +1,6 @@
 import { JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { GlossaryEntry } from '../../types'
-import { HL_COLORS } from '../../utils/highlight'
+import { HL_COLORS, categoryOf } from '../../utils/highlight'
 import { editGlossaryEntry } from './tooltipUtils'
 
 interface TooltipState {
@@ -89,7 +89,16 @@ export function Tooltip(): JSX.Element | null {
   if (!state) return null
 
   const { entry } = state
-  const colors = HL_COLORS[entry.type]
+  // Category to display = top of the path for nested entries (else 'other').
+  const category = categoryOf(entry)
+  const colors = (HL_COLORS as Record<string, { color: string; border: string; bg: string }>)[
+    category
+  ] ??
+    (HL_COLORS as Record<string, { color: string; border: string; bg: string }>)['other'] ?? {
+      color: 'var(--text2)',
+      border: 'var(--border)',
+      bg: 'transparent'
+    }
   const copyLabel =
     copyStatus === 'copied' ? 'คัดลอกแล้ว' : copyStatus === 'error' ? 'คัดลอกไม่ได้' : 'คัดลอก'
 
@@ -172,7 +181,7 @@ export function Tooltip(): JSX.Element | null {
             fontFamily: 'var(--font-mono)'
           }}
         >
-          {entry.type}
+          {category}
         </span>
 
         <button

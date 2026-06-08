@@ -143,3 +143,10 @@ body,
     transform: translateY(0);
   }
 }
+
+/* AIChatPanel streaming caret blink (defined here, not inline, to satisfy CSP) */
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}

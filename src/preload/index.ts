@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
-const eventChannels = new Set(['mp3-to-mp4:progress', 'tts:progress', 'openrouter-stream-chunk', 'merge-audio:progress'])
+const eventChannels = new Set(['mp3-to-mp4:progress', 'tts:progress', 'openrouter-stream-chunk', 'openrouter-stream-reasoning', 'openrouter-stream-toolargs', 'merge-audio:progress'])
 
 contextBridge.exposeInMainWorld('electron', {
   getEnvConfig: () => ipcRenderer.invoke('get-env-config'),
@@ -15,6 +15,10 @@ contextBridge.exposeInMainWorld('electron', {
   readAudioBuffer: (filePath: string) => ipcRenderer.invoke('fs:readAudioBuffer', filePath),
   writeFile: (filePath: string, content: string) =>
     ipcRenderer.invoke('fs:writeFile', filePath, content),
+  writeFileEnsureDir: (filePath: string, content: string) =>
+    ipcRenderer.invoke('fs:writeFileEnsureDir', filePath, content),
+  listDir: (dirPath: string) => ipcRenderer.invoke('fs:listDir', dirPath),
+  deleteFile: (filePath: string) => ipcRenderer.invoke('fs:deleteFile', filePath),
   moveFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('move-file', oldPath, newPath),
   saveFile: (defaultName: string, content: string) =>
     ipcRenderer.invoke('fs:saveFile', defaultName, content),

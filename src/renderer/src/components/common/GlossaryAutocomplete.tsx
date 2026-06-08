@@ -1,6 +1,6 @@
 import { memo, JSX, useEffect, useRef } from 'react'
 import type { MatchedEntry } from '../../hooks/useAutocomplete'
-import { HL_COLORS } from '../../utils/highlight'
+import { HL_COLORS, categoryOf } from '../../utils/highlight'
 
 export interface GlossaryAutocompleteProps {
   visible: boolean
@@ -59,7 +59,8 @@ export const GlossaryAutocomplete = memo(function GlossaryAutocomplete({
       {matches.map((matched, idx) => {
         const { entry, matchField } = matched
         const isSelected = idx === selectedIndex
-        const color = HL_COLORS[entry.type]
+        const cat = categoryOf(entry)
+        const color = HL_COLORS[cat]
         const displayValue = entry[matchField]
         const displaySecondary = matchField === 'src' ? entry.th : entry.src
         return (
@@ -102,7 +103,7 @@ export const GlossaryAutocomplete = memo(function GlossaryAutocomplete({
                   whiteSpace: 'nowrap'
                 }}
               >
-                {displaySecondary} • {entry.type}
+                {displaySecondary} • {cat}
               </div>
             </div>
             <div
@@ -117,7 +118,7 @@ export const GlossaryAutocomplete = memo(function GlossaryAutocomplete({
                 flexShrink: 0
               }}
             >
-              {entry.type}
+              {cat}
             </div>
           </div>
         )

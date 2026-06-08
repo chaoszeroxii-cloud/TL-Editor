@@ -1,7 +1,7 @@
 // src/main/ipc/fs.ts
 import { ipcMain } from 'electron'
-import { extname, join } from 'path'
-import { readdir, readFile, writeFile, stat } from 'fs/promises'
+import { dirname, extname, join } from 'path'
+import { mkdir, readdir, readFile, writeFile, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import fs from 'fs'
 import { assertPathAllowed } from './pathAccess'
@@ -136,6 +136,39 @@ export function registerFsHandlers(): void {
     await writeFile(approved, content, 'utf-8')
     // Invalidate cache for the parent directory so the next readTree reflects changes
     invalidateTreeCache(approved.replace(/[\\/][^\\/]+$/, ''))
+  })
+
+  // Like fs:writeFile but creates missing parent directories first (mkdir -p).
+  // Used by the AI chat panel to persist into the hidden `.tl-editor/` tree.
+  ipcMain.handle('fs:writeFileEnsureDir', async (_e, filePath: string, content: string) => {
+    const approved = assertPathAllowed(filePath)
+    await mkdir(dirname(approved), { recursive: true })
+    await writeFile(approved, content, 'utf-8')
+    invalidateTreeCache(approved.replace(/[\\/][^\\/]+$/, ''))
+  })
+
+  // Delete a single file (used to remove a chat session's .json). No-op if absent.
+  ipcMain.handle('fs:deleteFile', async (_e, filePath: string) => {
+    const approved = assertPathAllowed(filePath)
+    try {
+      await fs.promises.unlink(approved)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    invalidateTreeCache(approved.replace(/[\\/][^\\/]+$/, ''))
+  })
+
+  // List file names (non-recursive, files only) in a directory.
+  // Returns [] if the directory does not exist yet. Used for the session browser.
+  ipcMain.handle('fs:listDir', async (_e, dirPath: string) => {
+    const approved = assertPathAllowed(dirPath)
+    try {
+      const entries = await readdir(approved, { withFileTypes: true })
+      return entries.filter((ent) => ent.isFile()).map((ent) => ent.name)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw error
+    }
   })
 
   ipcMain.handle('move-file', async (_e, oldPath: string, newPath: string) => {

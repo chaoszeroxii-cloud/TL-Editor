@@ -1,4 +1,5 @@
 import React, { ReactNode } from 'react'
+import { IcoAlert, IcoRefresh } from './common/icons'
 
 interface ErrorBoundaryProps {
   children: ReactNode
@@ -44,8 +45,16 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
               color: '#333'
             }}
           >
-            <h3 style={{ margin: '0 0 10px 0', color: '#856404' }}>
-              ⚠️ {this.props.name || 'Component'} Error
+            <h3
+              style={{
+                margin: '0 0 10px 0',
+                color: '#856404',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6
+              }}
+            >
+              <IcoAlert size={15} stroke="currentColor" /> {this.props.name || 'Component'} Error
             </h3>
             <details style={{ marginBottom: '10px' }}>
               <summary style={{ cursor: 'pointer', color: '#856404', fontWeight: 'bold' }}>
@@ -75,10 +84,13 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
                 borderRadius: '3px',
                 cursor: 'pointer',
                 fontWeight: 'bold',
-                color: '#000'
+                color: '#000',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6
               }}
             >
-              🔄 Reload Application
+              <IcoRefresh size={13} stroke="currentColor" /> Reload Application
             </button>
           </div>
         )

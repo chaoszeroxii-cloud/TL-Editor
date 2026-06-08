@@ -67,6 +67,23 @@ export const IcoFile = ({ size, stroke }: IconProps = def()): JSX.Element => (
   </svg>
 )
 
+export const IcoBrain = ({ size, stroke }: IconProps = def()): JSX.Element => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={stroke}
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
+    <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
+    <path d="M12 5v13" />
+  </svg>
+)
+
 export const IcoEditFile = ({ size, stroke }: IconProps = def()): JSX.Element => (
   <svg
     width={size}

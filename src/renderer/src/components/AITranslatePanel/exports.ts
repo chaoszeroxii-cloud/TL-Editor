@@ -1,6 +1,0 @@
-export { AITranslatePanel } from './index'
-export type { AITranslateConfig } from './index'
-export { extractNewEntries } from './extractNewEntries'
-export type { PendingEntry } from './extractNewEntries'
-export { NewEntryReview } from './NewEntryReview'
-export type { NewEntryReviewProps } from './NewEntryReview'

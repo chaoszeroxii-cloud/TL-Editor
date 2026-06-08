@@ -1,6 +1,6 @@
 import { memo, useState, JSX } from 'react'
 import type { GlossaryEntry, GlossaryFileFormat } from '../../types'
-import { HL_COLORS } from '../../utils/highlight'
+import { HL_COLORS, categoryOf } from '../../utils/highlight'
 import { EntryForm } from './EntryForm'
 
 interface EntryRowProps {
@@ -25,7 +25,8 @@ export const EntryRow = memo(function EntryRow({
   glossary = []
 }: EntryRowProps): JSX.Element {
   const [editing, setEditing] = useState(false)
-  const colors = (HL_COLORS as Record<string, { color: string }>)[entry.type] ??
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const colors = (HL_COLORS as Record<string, { color: string }>)[categoryOf(entry)] ??
     (HL_COLORS as Record<string, { color: string }>)['other'] ?? { color: '#888' }
 
   if (editing) {
@@ -97,59 +98,95 @@ export const EntryRow = memo(function EntryRow({
         >
           {entry.src}
         </span>
-        <div
-          className="ra"
-          style={{
-            display: 'flex',
-            gap: 1,
-            opacity: 0,
-            transition: 'opacity 0.12s',
-            flexShrink: 0
-          }}
-        >
-          <button
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--text2)',
-              padding: '1px 4px',
-              borderRadius: 3,
-              display: 'flex',
-              alignItems: 'center',
-              fontSize: 11
-            }}
-            onClick={() => setEditing(true)}
-            title="Edit"
-          >
-            ✎
-          </button>
-          <button
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--hl-coral)',
-              padding: '1px 4px',
-              borderRadius: 3,
-              display: 'flex',
-              alignItems: 'center',
-              fontSize: 11
-            }}
-            onClick={() => {
-              if (
-                window.confirm(
-                  `ต้องการลบ "${entry.src}" ใช่หรือไม่?\n\nเมื่อลบแล้วจะไม่สามารถกู้คืนได้`
-                )
-              ) {
+        {confirmingDelete ? (
+          // In-app confirm — NOT window.confirm(): a native dialog blurs the editor
+          // and (Electron/Chromium) the text caret stops blinking until the window
+          // is re-focused, which looks like "the cursor disappeared".
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <span style={{ fontSize: 10, color: 'var(--text2)', fontFamily: 'var(--font-mono)' }}>
+              ลบ?
+            </span>
+            <button
+              style={{
+                background: 'rgba(240,122,106,0.12)',
+                border: '1px solid rgba(240,122,106,0.3)',
+                color: 'var(--hl-coral)',
+                borderRadius: 3,
+                fontSize: 10,
+                padding: '1px 7px',
+                cursor: 'pointer'
+              }}
+              onClick={() => {
                 onDelete(entry)
-              }
+                setConfirmingDelete(false)
+              }}
+              title="ยืนยันลบ"
+            >
+              ลบ
+            </button>
+            <button
+              style={{
+                background: 'none',
+                border: '1px solid var(--border)',
+                color: 'var(--text2)',
+                borderRadius: 3,
+                fontSize: 10,
+                padding: '1px 6px',
+                cursor: 'pointer'
+              }}
+              onClick={() => setConfirmingDelete(false)}
+              title="ยกเลิก"
+            >
+              ยกเลิก
+            </button>
+          </div>
+        ) : (
+          <div
+            className="ra"
+            style={{
+              display: 'flex',
+              gap: 1,
+              opacity: 0,
+              transition: 'opacity 0.12s',
+              flexShrink: 0
             }}
-            title="Delete"
           >
-            ✕
-          </button>
-        </div>
+            <button
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--text2)',
+                padding: '1px 4px',
+                borderRadius: 3,
+                display: 'flex',
+                alignItems: 'center',
+                fontSize: 11
+              }}
+              onClick={() => setEditing(true)}
+              title="Edit"
+            >
+              ✎
+            </button>
+            <button
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--hl-coral)',
+                padding: '1px 4px',
+                borderRadius: 3,
+                display: 'flex',
+                alignItems: 'center',
+                fontSize: 11
+              }}
+              onClick={() => setConfirmingDelete(true)}
+              title="Delete"
+            >
+              ✕
+            </button>
+          </div>
+        )}
       </div>
       <div style={{ fontSize: 11, color: 'var(--text1)', paddingLeft: 11 }}>{entry.th}</div>
       {entry.alt && entry.alt.length > 0 && (

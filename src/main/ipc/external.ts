@@ -497,6 +497,7 @@ export function registerExternalHandlers(): void {
         messages,
         model,
         tools,
+        reasoning,
         stream: useStream,
         requestId: clientRequestId
       }: {
@@ -504,6 +505,7 @@ export function registerExternalHandlers(): void {
         model: string
         messages: { role: string; content: string }[]
         tools?: object[]
+        reasoning?: { effort?: string; max_tokens?: number; exclude?: boolean; enabled?: boolean }
         stream?: boolean
         requestId?: string
       }
@@ -518,6 +520,7 @@ export function registerExternalHandlers(): void {
         max_tokens: 15000,
         ...(useStream ? { stream: true } : {}),
         ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
+        ...(reasoning ? { reasoning } : {}),
         ...(model.startsWith('deepseek/')
           ? { provider: { order: ['DeepSeek'], allow_fallbacks: false } }
           : {})
@@ -558,6 +561,7 @@ export function registerExternalHandlers(): void {
           const decoder = new TextDecoder()
           let sseBuffer = ''
           let accumulated = ''
+          let accumulatedReasoning = ''
           const toolCallsAccum: Array<{
             id: string
             type: string
@@ -581,10 +585,32 @@ export function registerExternalHandlers(): void {
 
               try {
                 const obj = JSON.parse(payload) as {
-                  choices?: { delta?: { content?: string; tool_calls?: unknown[] } }[]
+                  choices?: {
+                    delta?: {
+                      content?: string
+                      reasoning?: string
+                      reasoning_content?: string
+                      tool_calls?: unknown[]
+                    }
+                  }[]
                 }
                 const delta = obj.choices?.[0]?.delta
                 if (!delta) continue
+
+                // Reasoning / thinking tokens — emitted on a SEPARATE channel so the
+                // renderer never mixes them with the visible message content.
+                // OpenRouter normalizes to `reasoning`; we also accept `reasoning_content`
+                // (raw DeepSeek field) defensively.
+                const reasoningDelta =
+                  (typeof delta.reasoning === 'string' && delta.reasoning) ||
+                  (typeof delta.reasoning_content === 'string' && delta.reasoning_content) ||
+                  ''
+                if (reasoningDelta) {
+                  accumulatedReasoning += reasoningDelta
+                  if (!e.sender.isDestroyed()) {
+                    e.sender.send('openrouter-stream-reasoning', { requestId, delta: reasoningDelta })
+                  }
+                }
 
                 if (typeof delta.content === 'string' && delta.content) {
                   accumulated += delta.content
@@ -611,8 +637,19 @@ export function registerExternalHandlers(): void {
                     if (tc.id) toolCallsAccum[idx].id = tc.id
                     if (tc.type) toolCallsAccum[idx].type = tc.type
                     if (tc.function?.name) toolCallsAccum[idx].function.name = tc.function.name
-                    if (tc.function?.arguments)
+                    if (tc.function?.arguments) {
                       toolCallsAccum[idx].function.arguments += tc.function.arguments
+                      // Stream the argument delta so the renderer can show a live
+                      // preview (e.g. the translation text being written into a tool call).
+                      if (!e.sender.isDestroyed()) {
+                        e.sender.send('openrouter-stream-toolargs', {
+                          requestId,
+                          index: idx,
+                          name: toolCallsAccum[idx].function.name,
+                          delta: tc.function.arguments
+                        })
+                      }
+                    }
                   }
                 }
               } catch {
@@ -629,6 +666,7 @@ export function registerExternalHandlers(): void {
                 {
                   message: {
                     content: accumulated || null,
+                    reasoning: accumulatedReasoning || undefined,
                     tool_calls:
                       toolCallsAccum.length > 0
                         ? toolCallsAccum.filter((tc) => tc.function.name)
@@ -1159,11 +1197,18 @@ export function registerExternalHandlers(): void {
     const outPath = join(tmpBase, `tts_out_${ts}.mp3`)
 
     try {
+      // Write all segment temp files in parallel. Sequential awaits were the main
+      // cost of a re-gen — 148 small writes serialize badly, especially with
+      // on-access AV scanning on Windows. Paths are pre-built in order so the
+      // concat list stays correctly ordered regardless of write-completion order.
       for (let i = 0; i < audioBase64Array.length; i++) {
-        const p = join(tmpBase, `tts_seg_${ts}_${i}.mp3`)
-        await fsPromises.writeFile(p, Buffer.from(audioBase64Array[i], 'base64'))
-        segPaths.push(p)
+        segPaths.push(join(tmpBase, `tts_seg_${ts}_${i}.mp3`))
       }
+      await Promise.all(
+        audioBase64Array.map((b64, i) =>
+          fsPromises.writeFile(segPaths[i], Buffer.from(b64, 'base64'))
+        )
+      )
 
       const listContent = segPaths.map((p) => `file '${p.replace(/\\/g, '/')}'`).join('\n')
       await fsPromises.writeFile(listPath, listContent, 'utf-8')
