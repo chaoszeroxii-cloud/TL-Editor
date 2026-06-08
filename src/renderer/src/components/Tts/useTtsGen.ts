@@ -30,6 +30,12 @@ interface TtsProgressEvent {
 
 export interface UseTtsGenParams {
   config: TtsApiConfig
+  /**
+   * Live glossary content from the App store (`gls.glossary` → ttsGlossaries).
+   * Used directly for synthesis so a newly added at_lib/bf_lib entry is applied
+   * on the very next gen — do NOT re-derive this from disk here (that was stale).
+   */
+  glossaries: GlossaryLibraries
   tgtPath?: string | null
   tgtContent?: string
   getLineTone?: (lineIndex: number) => ToneName
@@ -92,14 +98,16 @@ function uint8ToBase64(bytes: Uint8Array): string {
 
 export function useTtsGen({
   config,
+  glossaries,
   tgtPath,
   tgtContent,
   getLineTone,
   onPlayTtsAudio,
   onAudioSaved
 }: UseTtsGenParams): TtsGen {
-  // ── Glossaries (was in TerminalPanel) ──────────────────────────────────────
-  const [glossaries, setGlossaries] = useState<GlossaryLibraries>({ at_lib: {}, bf_lib: {} })
+  // Glossary CONTENT comes live from the App store (the `glossaries` param), so a
+  // newly added entry is sent on the next gen. We still resolve the on-disk file
+  // paths here — purely for the ⚙ status display ("✓ at_lib: at_lib.json").
   const [glossaryPaths, setGlossaryPaths] = useState<{ atPath?: string; bfPath?: string }>({})
   const [configJsonPaths, setConfigJsonPaths] = useState<string[]>([])
 
@@ -112,11 +120,7 @@ export function useTtsGen({
 
   useEffect(() => {
     ;(async () => {
-      const { libs, atPath, bfPath } = await loadGlossariesFromConfig(
-        configJsonPaths,
-        tgtPath ?? null
-      )
-      setGlossaries(libs)
+      const { atPath, bfPath } = await loadGlossariesFromConfig(configJsonPaths, tgtPath ?? null)
       setGlossaryPaths({ atPath, bfPath })
     })()
   }, [tgtPath, configJsonPaths])

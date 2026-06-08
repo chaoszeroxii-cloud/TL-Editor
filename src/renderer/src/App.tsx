@@ -463,6 +463,7 @@ export default function App(): JSX.Element {
   // ── TTS generation engine (drives the floating popover + regen chip) ─────────
   const ttsGen = useTtsGen({
     config: app.ttsConfig,
+    glossaries: ttsGlossaries,
     tgtPath: files.tgtPath,
     tgtContent: files.tgtContent,
     getLineTone: (idx) => files.getLineTone(idx) as ToneName,
