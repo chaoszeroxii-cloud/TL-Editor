@@ -46,7 +46,7 @@ export function invalidateTreeCache(dirPath: string): void {
 
 // ─── Tree builder ─────────────────────────────────────────────────────────────
 
-const ALLOWED_EXTS = new Set(['.txt', '.json', '.mp3', '.ogg', '.wav', '.m4a'])
+const ALLOWED_EXTS = new Set(['.txt', '.json', '.mp3', '.ogg', '.wav', '.m4a', '.mp4', '.mov'])
 
 async function buildTree(dirPath: string, depth = 0, force = false): Promise<TreeNode[]> {
   if (depth > 4) return []

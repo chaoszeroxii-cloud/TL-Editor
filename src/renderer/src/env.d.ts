@@ -59,6 +59,15 @@ interface _EnvConfig {
   readrealmNote: string
   readrealmNovelId: string
   readrealmUsername: string
+  youtubeClientId: string
+  youtubeFolder: string
+  youtubeNovelName: string
+  youtubeTitleTemplate: string
+  youtubeDescription: string
+  youtubeTags: string
+  youtubeCategoryId: string
+  youtubePlaylistId: string
+  youtubeIntervalHrs: number
 }
 
 interface _SaveConfigPayload {
@@ -86,6 +95,15 @@ interface _SaveConfigPayload {
   readrealmFolder?: string
   readrealmNote?: string
   readrealmNovelId?: string
+  youtubeClientId?: string
+  youtubeFolder?: string
+  youtubeNovelName?: string
+  youtubeTitleTemplate?: string
+  youtubeDescription?: string
+  youtubeTags?: string
+  youtubeCategoryId?: string
+  youtubePlaylistId?: string
+  youtubeIntervalHrs?: number
 }
 
 
@@ -211,6 +229,42 @@ interface ElectronAPI {
     publishDatetime: string
     note: string
   }) => Promise<{ success: boolean; error?: string }>
+
+  // ── YouTube Publisher ──────────────────────────────────────────────────────
+  youtubeSaveSecret: (opts: { clientSecret: string }) => Promise<{ success: boolean; error?: string }>
+  youtubeConnect: () => Promise<{ success: boolean; channelTitle?: string; error?: string }>
+  youtubeStatus: () => Promise<{ connected: boolean; channelTitle?: string; error?: string }>
+  youtubeDisconnect: () => Promise<{ success: boolean }>
+  youtubeListPlaylists: () => Promise<{
+    success: boolean
+    data?: Array<{ id: string; title: string }>
+    error?: string
+  }>
+  youtubeListUploaded: () => Promise<{
+    success: boolean
+    data?: Array<{ title: string; videoId: string }>
+    error?: string
+  }>
+  youtubeUploadVideo: (opts: {
+    videoPath: string
+    title: string
+    description: string
+    tags: string[]
+    categoryId: string
+    privacyStatus: 'public' | 'unlisted' | 'private'
+    publishAt?: string
+    defaultLanguage?: string
+    playlistId?: string
+    thumbnailPath?: string
+  }) => Promise<{
+    success: boolean
+    videoId?: string
+    warning?: string
+    quotaExceeded?: boolean
+    canceled?: boolean
+    error?: string
+  }>
+  cancelYoutubeUpload: () => Promise<boolean>
 }
 
 declare global {

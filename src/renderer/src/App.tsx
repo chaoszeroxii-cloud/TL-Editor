@@ -19,6 +19,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { Tooltip } from './components/common/Tooltip'
 import { GlossaryEditor } from './components/GlossaryEditor'
 import { AudioPlayer } from './components/AudioPlayer'
+import { VideoPlayer } from './components/VideoPlayer'
 import { TtsPopover } from './components/Tts/TtsPopover'
 import { TtsChip } from './components/Tts/TtsChip'
 import { useTtsGen } from './components/Tts/useTtsGen'
@@ -30,6 +31,7 @@ import type { PendingLineEdit } from './components/AIChatPanel/types'
 import { Mp3ToMp4 } from './components/Mp3ToMp4'
 import { MergeAudioPanel } from './components/MergeAudioPanel'
 import { ReadRealmPanel } from './components/ReadRealmPanel'
+import { YouTubePanel } from './components/YouTubePanel'
 import { SetupWizard } from './components/setup/SetupWizard'
 import {
   useStyleProfileStore,
@@ -44,6 +46,7 @@ import { useGlossaryStore } from './store/useGlossaryStore'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts' //  FIXED
 
 import { countMatches } from './utils/highlight'
+import { computeFlagNoteMap } from './utils/reviewFlags'
 import { findTranslationPair } from './hooks/useChapterPairing'
 import { type GlossaryLibraries } from './utils/glossaryLoader'
 
@@ -77,8 +80,15 @@ export default function App(): JSX.Element {
   // ── Font switcher ────────────────────────────────────────────────────────
   type FontChoice = 'system' | 'sarabun' | 'noto' | 'ibm'
   const FONT_CYCLE: FontChoice[] = ['system', 'sarabun', 'noto', 'ibm']
-  const FONT_LABEL: Record<FontChoice, string> = { system: 'Sys', sarabun: 'Sara', noto: 'Noto', ibm: 'IBM' }
-  const [font, setFont] = useState<FontChoice>(() => (localStorage.getItem('font') as FontChoice) || 'system')
+  const FONT_LABEL: Record<FontChoice, string> = {
+    system: 'Sys',
+    sarabun: 'Sara',
+    noto: 'Noto',
+    ibm: 'IBM'
+  }
+  const [font, setFont] = useState<FontChoice>(
+    () => (localStorage.getItem('font') as FontChoice) || 'system'
+  )
   useEffect(() => {
     if (font === 'system') document.documentElement.removeAttribute('data-font')
     else document.documentElement.setAttribute('data-font', font)
@@ -308,13 +318,27 @@ export default function App(): JSX.Element {
     [files, app]
   )
 
-  // ── Refresh tree ─────────────────────────────────────────────────────────
+  // ── Refresh tree + force review-flag recompute ─────────────────────────────
   const { rootDir, setTree } = app
+  // Bumping this re-runs the review-flag effect on demand (Ctrl+R / refresh button)
+  // so flags never stay stale/missing after an async glossary load.
+  const [flagRefreshToken, setFlagRefreshToken] = useState(0)
   const handleRefresh = useCallback(async () => {
+    setFlagRefreshToken((t) => t + 1)
     if (!rootDir) return
     const newTree = await window.electron.readTree(rootDir, { force: true })
     setTree(newTree)
   }, [rootDir, setTree])
+
+  // Ctrl/Cmd+R is intercepted in main (to stop the destructive window reload) and
+  // forwarded here as a refresh.
+  useEffect(() => {
+    const cb = (): void => {
+      void handleRefresh()
+    }
+    window.electron.on('menu:refresh', cb)
+    return () => window.electron.off('menu:refresh', cb)
+  }, [handleRefresh])
 
   const handleToggleAiPanel = useCallback(() => {
     if (app.styleProfileOpen) {
@@ -471,8 +495,44 @@ export default function App(): JSX.Element {
     onAudioSaved: handleAudioSaved
   })
 
-  // ── Flag uncertain rows (set by future AI tooling; shown in DualView) ─────
-  const [flaggedRows] = useState<Map<number, string>>(new Map())
+  // ── Tiered review: flag suspect rows so the user reviews only those ─────────
+  // Pure, deterministic pass (see utils/reviewFlags). Debounced + low-priority so
+  // it recomputes on commit (not per keystroke — rows are uncontrolled while
+  // editing) and never competes with the edit paint. Same pattern as matchCount.
+  const [flaggedRows, setFlaggedRows] = useState<Map<number, string>>(new Map())
+  useEffect(() => {
+    const src = files.srcContent
+    const tgt = files.tgtContent
+    if (!src || !tgt) {
+      setFlaggedRows((prev) => (prev.size === 0 ? prev : new Map()))
+      return
+    }
+    // Debounced so it fires on commit, not per keystroke. No startTransition here:
+    // the compute is sub-ms and the prior deferral could leave flags missing.
+    // Recomputes when src/tgt/glossary change (glossary loads async) or on refresh.
+    const timeout = window.setTimeout(() => {
+      setFlaggedRows(computeFlagNoteMap(src, tgt, gls.glossary))
+    }, 350)
+    return () => window.clearTimeout(timeout)
+  }, [files.srcContent, files.tgtContent, gls.glossary, flagRefreshToken])
+
+  // ── Polish one flagged line via AI (DualView "✦ AI" button) ────────────────
+  // Builds a focused replace_lines request and opens the chat agent to run it.
+  const [aiInject, setAiInject] = useState<{ text: string; nonce: number } | null>(null)
+  const handlePolishLine = useCallback(
+    (rowIndex: number, srcLine: string, tgtLine: string, note: string) => {
+      const n = rowIndex + 1
+      const text =
+        `เกลาคำแปลบรรทัดที่ ${n} ใหม่ให้ลื่นและตรงต้นฉบับ (ใช้ replace_lines ที่บรรทัด ${n})\n` +
+        `• ต้นฉบับ: ${srcLine}\n` +
+        `• คำแปลตอนนี้: ${tgtLine || '(ว่าง)'}` +
+        (note ? `\n• ระบบเตือน: ${note}` : '')
+      setAiInject({ text, nonce: Date.now() })
+      app.setStyleProfileOpen(false)
+      app.setAiPanelOpen(true)
+    },
+    [app]
+  )
 
   // ── Context-menu "ส่งไป AI" → just open the chat panel ───────────────────
   const handleSendToParaphrase = useCallback(() => {
@@ -529,6 +589,9 @@ export default function App(): JSX.Element {
   const hasAnyFile = files.tgtPath !== null
   const [helpOpen, setHelpOpen] = useState(false)
   const [readrealmOpen, setReadrealmOpen] = useState(false)
+  const [youtubeOpen, setYoutubeOpen] = useState(false)
+  // Local MP4 currently open in the floating VideoPlayer (null = closed).
+  const [mp4Path, setMp4Path] = useState<string | null>(null)
 
   // ── Setup wizard ─────────────────────────────────────────────────────────
   if (showSetup) return <SetupWizard onDone={handleSetupDone} />
@@ -565,6 +628,7 @@ export default function App(): JSX.Element {
           mergeAudioOpen={app.mergeAudioOpen}
           aiPanelOpen={app.aiPanelOpen || app.styleProfileOpen}
           readrealmOpen={readrealmOpen}
+          youtubeOpen={youtubeOpen}
           pairingSourcePath={pairingSourcePath}
           saving={files.saving}
           theme={theme}
@@ -578,6 +642,7 @@ export default function App(): JSX.Element {
           onToggleMergeAudio={app.toggleMergeAudio}
           onToggleAi={handleToggleAiPanel}
           onToggleReadrealm={() => setReadrealmOpen((v) => !v)}
+          onToggleYoutube={() => setYoutubeOpen((v) => !v)}
           onSelectPairingSource={handleSelectPairingSource}
           onRefresh={handleRefresh}
           onToggleTheme={toggleTheme}
@@ -596,6 +661,7 @@ export default function App(): JSX.Element {
             onSelectFile={handleSelectFile}
             onOpenJsonFile={gls.handleOpenJsonFile}
             onSelectMp3={files.setMp3Path}
+            onSelectMp4={setMp4Path}
             onNewFile={handleNewFile}
             onReorderTree={app.setTree}
             onFileMoved={handleFileMoved}
@@ -647,6 +713,7 @@ export default function App(): JSX.Element {
                   setLineVoiceGender={files.setLineVoiceGender}
                   showToneControls={showToneControls}
                   flaggedRows={flaggedRows}
+                  onPolishLine={handlePolishLine}
                   diffHunks={diffHunks}
                   onAcceptDiff={pendingDiffs.acceptEdit}
                   onDenyDiff={pendingDiffs.denyEdit}
@@ -712,11 +779,12 @@ export default function App(): JSX.Element {
               rootDir={app.rootDir}
               pending={pendingDiffs}
               memoryContent={projectMemory.content}
+              injectedPrompt={aiInject}
+              onInjectedConsumed={() => setAiInject(null)}
             />
           </ErrorBoundary>
         )}
       </div>
-
 
       {/* MP3 → MP4 Converter */}
       {app.mp3ConverterOpen && (
@@ -736,6 +804,20 @@ export default function App(): JSX.Element {
       {readrealmOpen && (
         <ErrorBoundary name="ReadRealmPanel">
           <ReadRealmPanel onClose={() => setReadrealmOpen(false)} />
+        </ErrorBoundary>
+      )}
+
+      {/* YouTube Publisher */}
+      {youtubeOpen && (
+        <ErrorBoundary name="YouTubePanel">
+          <YouTubePanel onClose={() => setYoutubeOpen(false)} />
+        </ErrorBoundary>
+      )}
+
+      {/* Video player (local MP4 from file tree) */}
+      {mp4Path && (
+        <ErrorBoundary name="VideoPlayer">
+          <VideoPlayer filePath={mp4Path} onClose={() => setMp4Path(null)} />
         </ErrorBoundary>
       )}
 
@@ -910,6 +992,7 @@ const TopBarRight = memo(function TopBarRight({
   mergeAudioOpen,
   aiPanelOpen,
   readrealmOpen,
+  youtubeOpen,
   pairingSourcePath,
   saving,
   theme,
@@ -921,6 +1004,7 @@ const TopBarRight = memo(function TopBarRight({
   onToggleMp3Converter,
   onToggleMergeAudio,
   onToggleReadrealm,
+  onToggleYoutube,
   onToggleAi,
   onSelectPairingSource,
   onRefresh,
@@ -939,6 +1023,7 @@ const TopBarRight = memo(function TopBarRight({
   mergeAudioOpen: boolean
   aiPanelOpen: boolean
   readrealmOpen: boolean
+  youtubeOpen: boolean
   pairingSourcePath: string
   saving: boolean
   theme: 'dark' | 'light'
@@ -951,6 +1036,7 @@ const TopBarRight = memo(function TopBarRight({
   onToggleMp3Converter: () => void
   onToggleMergeAudio: () => void
   onToggleReadrealm: () => void
+  onToggleYoutube: () => void
   onSelectPairingSource: () => void
   onRefresh: () => void
   onToggleTheme: () => void
@@ -1056,6 +1142,14 @@ const TopBarRight = memo(function TopBarRight({
         label=""
         title="ReadRealm Publisher"
         onClick={onToggleReadrealm}
+        compact={compact}
+      />
+      <ActionButton
+        active={youtubeOpen}
+        icon="YT"
+        label=""
+        title="YouTube Publisher"
+        onClick={onToggleYoutube}
         compact={compact}
       />
       <button

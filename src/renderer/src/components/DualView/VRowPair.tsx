@@ -47,6 +47,8 @@ export interface VRowPairProps {
   onPlayRow?: (rowIndex: number, text: string) => void
   isStreaming?: boolean
   flagNote?: string
+  /** Polish this (flagged) line via the AI agent. */
+  onPolishRow?: (rowIndex: number) => void
   /** A staged AI edit is waiting on this row (shown faintly while it's being edited). */
   diffPending?: boolean
 }
@@ -94,6 +96,7 @@ export const VRowPair = memo(function VRowPair({
   onPlayRow,
   isStreaming = false,
   flagNote,
+  onPolishRow,
   diffPending = false
 }: VRowPairProps): JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -141,6 +144,7 @@ export const VRowPair = memo(function VRowPair({
     (gender: VoiceGender) => onVoiceGenderChange?.(rowIndex, gender),
     [onVoiceGenderChange, rowIndex]
   )
+  const polish = useCallback(() => onPolishRow?.(rowIndex), [onPolishRow, rowIndex])
 
   const isTgtEditing = isEditing && editingCol === 'tgt'
   const isSrcEditing = isEditing && editingCol === 'src'
@@ -152,7 +156,9 @@ export const VRowPair = memo(function VRowPair({
       ref={wrapRef}
       data-row-index={rowIndex}
       data-row={rowIndex}
-      title={flagNote ?? (diffPending ? 'มี AI diff รอ review — พิมพ์ให้เสร็จก่อนค่อยแสดง' : undefined)}
+      title={
+        flagNote ?? (diffPending ? 'มี AI diff รอ review — พิมพ์ให้เสร็จก่อนค่อยแสดง' : undefined)
+      }
       style={{
         display: 'flex',
         minHeight: ROW_H,
@@ -175,6 +181,34 @@ export const VRowPair = memo(function VRowPair({
         onMouseEnter={() => setTgtHovered(true)}
         onMouseLeave={() => setTgtHovered(false)}
       >
+        {flagNote && onPolishRow && tgtHovered && !isEditing && (
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.stopPropagation()
+              polish()
+            }}
+            title={`เกลาบรรทัดนี้ด้วย AI — ${flagNote}`}
+            style={{
+              position: 'absolute',
+              right: 30,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              zIndex: 11,
+              background: 'var(--bg3)',
+              border: '1px solid var(--hl-gold)',
+              borderRadius: 4,
+              color: 'var(--hl-gold)',
+              fontSize: 10,
+              padding: '2px 6px',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-mono)',
+              lineHeight: 1.4
+            }}
+          >
+            ✦ AI
+          </button>
+        )}
         {(isStreaming || (tgtHovered && !isEditing && tgtText.trim())) && onPlayRow && (
           <button
             onMouseDown={(e) => e.preventDefault()}
@@ -206,10 +240,28 @@ export const VRowPair = memo(function VRowPair({
           >
             {isStreaming ? (
               <span style={{ display: 'inline-flex', gap: 2, alignItems: 'center' }}>
-                <span style={{ width: 3, height: 10, background: 'currentColor', borderRadius: 1, display: 'block' }} />
-                <span style={{ width: 3, height: 10, background: 'currentColor', borderRadius: 1, display: 'block' }} />
+                <span
+                  style={{
+                    width: 3,
+                    height: 10,
+                    background: 'currentColor',
+                    borderRadius: 1,
+                    display: 'block'
+                  }}
+                />
+                <span
+                  style={{
+                    width: 3,
+                    height: 10,
+                    background: 'currentColor',
+                    borderRadius: 1,
+                    display: 'block'
+                  }}
+                />
               </span>
-            ) : '▶'}
+            ) : (
+              '▶'
+            )}
           </button>
         )}
         <Row

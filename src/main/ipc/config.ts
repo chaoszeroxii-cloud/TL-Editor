@@ -35,6 +35,16 @@ export interface AppConfig {
   readrealmFolder?: string
   readrealmNote?: string
   readrealmNovelId?: string
+  // YouTube Publisher (client_secret + refresh token live in keychain, not here)
+  youtubeClientId?: string
+  youtubeFolder?: string
+  youtubeNovelName?: string
+  youtubeTitleTemplate?: string
+  youtubeDescription?: string
+  youtubeTags?: string
+  youtubeCategoryId?: string
+  youtubePlaylistId?: string
+  youtubeIntervalHrs?: number
 }
 
 // ─── Keytar helpers (secure credential storage) ───────────────────────────────
@@ -136,7 +146,17 @@ export function registerConfigHandlers(): void {
       readrealmFolder: cfg.readrealmFolder ?? '',
       readrealmNote: cfg.readrealmNote ?? '',
       readrealmNovelId: cfg.readrealmNovelId ?? '',
-      readrealmUsername: (await loadApiKey('readrealm-user')) ?? ''
+      readrealmUsername: (await loadApiKey('readrealm-user')) ?? '',
+      // YouTube Publisher
+      youtubeClientId: cfg.youtubeClientId ?? '',
+      youtubeFolder: cfg.youtubeFolder ?? '',
+      youtubeNovelName: cfg.youtubeNovelName ?? '',
+      youtubeTitleTemplate: cfg.youtubeTitleTemplate ?? '{novel} บทที่ {n}',
+      youtubeDescription: cfg.youtubeDescription ?? '',
+      youtubeTags: cfg.youtubeTags ?? '',
+      youtubeCategoryId: cfg.youtubeCategoryId ?? '22',
+      youtubePlaylistId: cfg.youtubePlaylistId ?? '',
+      youtubeIntervalHrs: cfg.youtubeIntervalHrs ?? 24
     }
   })
 

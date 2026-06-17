@@ -11,6 +11,7 @@ import { registerConfigHandlers } from './ipc/config'
 import { registerFsHandlers } from './ipc/fs'
 import { registerDialogHandlers } from './ipc/dialog'
 import { registerExternalHandlers } from './ipc/external'
+import { registerYoutubeHandlers } from './ipc/youtube'
 import { assertPathAllowed } from './ipc/pathAccess'
 
 // ─── Crash diagnostics ────────────────────────────────────────────────────────
@@ -86,6 +87,19 @@ function createWindow(): void {
   })
   win.webContents.on('unresponsive', () => logCrash('renderer-unresponsive', {}))
   win.webContents.on('responsive', () => logCrash('renderer-responsive', {}))
+
+  // Ctrl/Cmd+R is the app's "Refresh", NOT a window reload — the default menu's
+  // Reload accelerator would wipe unsaved edits and restart async glossary load.
+  // Swallow it here (preventDefault also blocks the page keydown) and route it to
+  // the renderer as a refresh. Force Reload (Ctrl+Shift+R) is left as an escape hatch.
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return
+    const mod = input.control || input.meta
+    if (mod && !input.shift && !input.alt && input.key.toLowerCase() === 'r') {
+      event.preventDefault()
+      if (!win.isDestroyed()) win.webContents.send('menu:refresh')
+    }
+  })
 }
 
 // GPU / utility process death also blanks the window — record it (a GPU crash
@@ -143,7 +157,11 @@ app.whenReady().then(() => {
         '.m4a': 'audio/mp4',
         '.aac': 'audio/aac',
         '.flac': 'audio/flac',
-        '.webm': 'audio/webm'
+        '.webm': 'audio/webm',
+        // Video — served over the same scheme so the VideoPlayer's <video> tag
+        // can stream local MP4s (Range requests handled below) just like audio.
+        '.mp4': 'video/mp4',
+        '.mov': 'video/quicktime'
       }
       const contentType = mimeTypes[ext] || 'application/octet-stream'
 
@@ -231,6 +249,7 @@ app.whenReady().then(() => {
   registerFsHandlers()
   registerDialogHandlers()
   registerExternalHandlers()
+  registerYoutubeHandlers()
 
   createWindow()
 })

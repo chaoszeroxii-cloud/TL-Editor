@@ -31,6 +31,7 @@ export function approveConfigPaths(config: {
   mergeAudioSourceDir?: string
   mergeAudioOutputDir?: string
   readrealmFolder?: string
+  youtubeFolder?: string
 }): void {
   approvePath(config.folderPath)
   approvePaths(config.jsonPaths ?? [])
@@ -43,6 +44,7 @@ export function approveConfigPaths(config: {
   approvePath(config.mergeAudioSourceDir)
   approvePath(config.mergeAudioOutputDir)
   approvePath(config.readrealmFolder)
+  approvePath(config.youtubeFolder)
 }
 
 export function assertPathAllowed(target: string): string {

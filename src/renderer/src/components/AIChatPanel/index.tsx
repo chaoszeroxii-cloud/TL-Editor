@@ -6,7 +6,11 @@
 import { useState, useRef, useEffect, useCallback, useMemo, JSX } from 'react'
 import type { GlossaryEntry } from '../../types'
 import type { ChatMessage, ReasoningEffort, ToolContext } from './types'
-import { filterMatchedGlossary, buildNestedFromEntries, matchEntryInText } from '../../utils/glossaryMatch'
+import {
+  filterMatchedGlossary,
+  buildNestedFromEntries,
+  matchEntryInText
+} from '../../utils/glossaryMatch'
 import { useChatAgent, type ContextInputs } from './useChatAgent'
 import type { PendingDiffsApi } from './usePendingDiffs'
 import { useChatSessions } from './useChatSessions'
@@ -47,6 +51,10 @@ export interface AIChatPanelProps {
   pending: PendingDiffsApi
   /** Current project-memory.md content (owned by App). */
   memoryContent: string
+  /** One-shot prompt injected from outside (e.g. DualView "polish line N") — auto-sent once. */
+  injectedPrompt?: { text: string; nonce: number } | null
+  /** Called right after an injected prompt is consumed, so the parent can clear it. */
+  onInjectedConsumed?: () => void
 }
 
 export function AIChatPanel({
@@ -58,7 +66,9 @@ export function AIChatPanel({
   onConfigChange,
   rootDir,
   pending,
-  memoryContent
+  memoryContent,
+  injectedPrompt,
+  onInjectedConsumed
 }: AIChatPanelProps): JSX.Element {
   const [model, setModel] = useState<string>(MODELS[0].id)
   const [effort, setEffort] = useState<ReasoningEffort>('off')
@@ -235,6 +245,18 @@ export function AIChatPanel({
     messages: agent.messages,
     setMessages: agent.setMessages
   })
+
+  // One-shot external prompts (e.g. DualView "เกลาบรรทัดนี้") → auto-send once.
+  // The nonce guard makes this idempotent even if the effect re-runs when
+  // agentSend changes (e.g. while a turn is running), so it never double-sends.
+  const { send: agentSend } = agent
+  const lastInjectNonce = useRef<number | null>(null)
+  useEffect(() => {
+    if (!injectedPrompt || lastInjectNonce.current === injectedPrompt.nonce) return
+    lastInjectNonce.current = injectedPrompt.nonce
+    void agentSend(injectedPrompt.text)
+    onInjectedConsumed?.()
+  }, [injectedPrompt, agentSend, onInjectedConsumed])
 
   // ── Auto-scroll messages ────────────────────────────────────────────────────
   const listRef = useRef<HTMLDivElement>(null)
@@ -429,7 +451,10 @@ export function AIChatPanel({
           // Key is set — show masked status with edit / clear actions.
           return (
             <div style={s.keyRow}>
-              <span style={{ color: 'var(--hl-teal)', display: 'flex' }} title="OpenRouter key พร้อมใช้">
+              <span
+                style={{ color: 'var(--hl-teal)', display: 'flex' }}
+                title="OpenRouter key พร้อมใช้"
+              >
                 <IcoKey size={12} stroke="currentColor" />
               </span>
               <span style={s.keyMasked} title="OpenRouter key (เก็บใน OS keychain)">

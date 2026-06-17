@@ -15,6 +15,7 @@ interface SidebarProps {
   onSelectFile: (path: string) => void
   onOpenJsonFile: (path: string) => void
   onSelectMp3: (path: string) => void
+  onSelectMp4: (path: string) => void
   onNewFile: () => void
   onReorderTree?: (tree: TreeNode[]) => void
   onFileMoved?: (oldPath: string, newPath: string) => Promise<void>
@@ -30,6 +31,7 @@ export const Sidebar = memo(function Sidebar({
   onSelectFile,
   onOpenJsonFile,
   onSelectMp3,
+  onSelectMp4,
   onNewFile,
   onReorderTree,
   onFileMoved
@@ -153,6 +155,7 @@ export const Sidebar = memo(function Sidebar({
                 onSelectFile={onSelectFile}
                 onOpenJsonFile={onOpenJsonFile}
                 onSelectMp3={onSelectMp3}
+                onSelectMp4={onSelectMp4}
                 onRename={onFileMoved}
               />
             ))}

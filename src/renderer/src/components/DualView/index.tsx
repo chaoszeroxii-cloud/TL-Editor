@@ -65,6 +65,17 @@ function findLiteralMatchRanges(
   return matches
 }
 
+const hudBtnStyle: React.CSSProperties = {
+  background: 'var(--bg3)',
+  border: '1px solid var(--border)',
+  borderRadius: 4,
+  color: 'var(--text1)',
+  cursor: 'pointer',
+  fontSize: 11,
+  lineHeight: 1,
+  padding: '3px 7px'
+}
+
 export interface DualViewProps {
   srcContent: string
   tgtContent: string
@@ -103,6 +114,8 @@ export interface DualViewProps {
   setLineVoiceGender?: (lineIndex: number, gender: VoiceGender) => void
   showToneControls?: boolean
   flaggedRows?: Map<number, string>
+  /** Polish one (usually flagged) TGT line via the AI agent. */
+  onPolishLine?: (rowIndex: number, srcLine: string, tgtLine: string, flagNote: string) => void
   /** Staged AI edits mapped to current TGT row ranges (inline ghost diffs). */
   diffHunks?: DiffHunk[]
   onAcceptDiff?: (editId: string) => void
@@ -223,6 +236,7 @@ export function DualView({
   setLineVoiceGender,
   showToneControls = false,
   flaggedRows,
+  onPolishLine,
   diffHunks,
   onAcceptDiff,
   onDenyDiff
@@ -930,6 +944,69 @@ export function DualView({
     [handleTts]
   )
 
+  // ── Tiered review: flag navigation (n / N) + HUD ────────────────────────────
+  const flagRowList = useMemo(
+    () => [...(flaggedRows?.keys() ?? [])].sort((a, b) => a - b),
+    [flaggedRows]
+  )
+  const flagCounts = useMemo(() => {
+    let high = 0
+    let low = 0
+    for (const note of flaggedRows?.values() ?? []) {
+      if (note.startsWith('🔴')) high++
+      else low++
+    }
+    return { high, low }
+  }, [flaggedRows])
+
+  const jumpToFlag = useCallback(
+    (dir: 1 | -1) => {
+      if (flagRowList.length === 0) return
+      const cur = activeRow ?? -1
+      let target: number
+      if (dir === 1) {
+        target = flagRowList.find((r) => r > cur) ?? flagRowList[0]
+      } else {
+        const before = flagRowList.filter((r) => r < cur)
+        target = before.length ? before[before.length - 1] : flagRowList[flagRowList.length - 1]
+      }
+      onRowFocus(target)
+      scrollIntoView(target)
+    },
+    [flagRowList, activeRow, onRowFocus, scrollIntoView]
+  )
+
+  // Plain n / N (no modifier) jump between flags — only when not typing in a row.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      if (editingRow !== null) return
+      const el = document.activeElement
+      if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) return
+      if (e.key === 'n') {
+        e.preventDefault()
+        jumpToFlag(1)
+      } else if (e.key === 'N') {
+        e.preventDefault()
+        jumpToFlag(-1)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [editingRow, jumpToFlag])
+
+  const handlePolishRow = useCallback(
+    (rowIndex: number) => {
+      onPolishLine?.(
+        rowIndex,
+        cleanSrcRows[rowIndex] ?? '',
+        cleanTgtRows[rowIndex] ?? '',
+        flaggedRows?.get(rowIndex) ?? ''
+      )
+    },
+    [onPolishLine, cleanSrcRows, cleanTgtRows, flaggedRows]
+  )
+
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div
@@ -1068,12 +1145,48 @@ export function DualView({
                 onPlayRow={handlePlayRow}
                 isStreaming={activeStreamRow === i}
                 flagNote={flaggedRows?.get(i)}
+                onPolishRow={onPolishLine ? handlePolishRow : undefined}
                 diffPending={!!coverHunk}
               />
             )
           })}
         </div>
       </div>
+
+      {/* Tiered-review HUD — flag counts + jump (n / Shift+N), bottom-left */}
+      {flagRowList.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 8,
+            left: 12,
+            zIndex: 8000,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            background: 'var(--bg2)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            padding: '4px 8px',
+            fontSize: 11,
+            fontFamily: 'var(--font-mono)',
+            color: 'var(--text1)',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
+          }}
+          title="บรรทัดที่ระบบเตือน — กด n / Shift+N เพื่อไล่ทีละจุด"
+        >
+          <span style={{ color: 'var(--text2)' }}>ไล่ธง</span>
+          {flagCounts.high > 0 && <span title="ต้องแก้">🔴 {flagCounts.high}</span>}
+          {flagCounts.low > 0 && <span title="ควรตรวจ">🟡 {flagCounts.low}</span>}
+          <span style={{ width: 1, height: 14, background: 'var(--border)' }} />
+          <button onClick={() => jumpToFlag(-1)} title="ก่อนหน้า (Shift+N)" style={hudBtnStyle}>
+            ↑
+          </button>
+          <button onClick={() => jumpToFlag(1)} title="ถัดไป (n)" style={hudBtnStyle}>
+            ↓
+          </button>
+        </div>
+      )}
 
       {/* Hidden audio element for WebSocket streaming */}
       <audio ref={audioRef} style={{ display: 'none' }} />

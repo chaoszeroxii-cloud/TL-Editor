@@ -9,6 +9,7 @@ import {
   IcoBook,
   IcoPen,
   IcoMusic,
+  IcoVideo,
   IcoChevronDown,
   IcoChevronRight
 } from '../common/icons'
@@ -20,6 +21,7 @@ interface NodeItemProps {
   onSelectFile: (p: string) => void
   onOpenJsonFile: (p: string) => void
   onSelectMp3: (p: string) => void
+  onSelectMp4: (p: string) => void
   onRename?: (oldPath: string, newPath: string) => Promise<void>
 }
 
@@ -30,6 +32,7 @@ export const NodeItem = memo(function NodeItem({
   onSelectFile,
   onOpenJsonFile,
   onSelectMp3,
+  onSelectMp4,
   onRename
 }: NodeItemProps): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -100,6 +103,7 @@ export const NodeItem = memo(function NodeItem({
               onSelectFile={onSelectFile}
               onOpenJsonFile={onOpenJsonFile}
               onSelectMp3={onSelectMp3}
+              onSelectMp4={onSelectMp4}
               onRename={onRename}
             />
           ))}
@@ -114,21 +118,26 @@ export const NodeItem = memo(function NodeItem({
   const isGlossary = node.name === 'glossary.json'
   const isTL = node.name.endsWith('.translated.txt')
   const isMp3 = /\.(mp3|ogg|wav|m4a)$/i.test(node.name)
+  const isMp4 = /\.(mp4|mov)$/i.test(node.name)
 
   const color = isActive
     ? 'var(--accent)'
     : isGlossary
       ? 'var(--hl-gold)'
-      : isMp3
-        ? 'var(--hl-coral)'
-        : isJson
-          ? 'var(--hl-teal)'
-          : isTL
-            ? 'var(--hl-coral)'
-            : 'var(--text1)'
+      : isMp4
+        ? 'var(--accent)'
+        : isMp3
+          ? 'var(--hl-coral)'
+          : isJson
+            ? 'var(--hl-teal)'
+            : isTL
+              ? 'var(--hl-coral)'
+              : 'var(--text1)'
 
   const icon = isGlossary ? (
     <IcoBook size={12} stroke="var(--hl-gold)" />
+  ) : isMp4 ? (
+    <IcoVideo size={12} stroke="var(--accent)" />
   ) : isMp3 ? (
     <IcoMusic size={12} stroke="var(--hl-coral)" />
   ) : isJson ? (
@@ -141,6 +150,7 @@ export const NodeItem = memo(function NodeItem({
 
   const doClick = (): void => {
     if (isJson) return onOpenJsonFile(node.path)
+    if (isMp4) return onSelectMp4(node.path)
     if (isMp3) return onSelectMp3(node.path)
     onSelectFile(node.path)
   }
@@ -226,6 +236,19 @@ export const NodeItem = memo(function NodeItem({
           style={{
             fontSize: 9,
             color: 'var(--hl-coral)',
+            fontFamily: 'var(--font-mono)',
+            flexShrink: 0,
+            opacity: 0.7
+          }}
+        >
+          ▶
+        </span>
+      )}
+      {isMp4 && !renaming && (
+        <span
+          style={{
+            fontSize: 9,
+            color: 'var(--accent)',
             fontFamily: 'var(--font-mono)',
             flexShrink: 0,
             opacity: 0.7

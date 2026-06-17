@@ -1,6 +1,15 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
-const eventChannels = new Set(['mp3-to-mp4:progress', 'tts:progress', 'openrouter-stream-chunk', 'openrouter-stream-reasoning', 'openrouter-stream-toolargs', 'merge-audio:progress'])
+const eventChannels = new Set([
+  'mp3-to-mp4:progress',
+  'tts:progress',
+  'openrouter-stream-chunk',
+  'openrouter-stream-reasoning',
+  'openrouter-stream-toolargs',
+  'merge-audio:progress',
+  'youtube:progress',
+  'menu:refresh'
+])
 
 contextBridge.exposeInMainWorld('electron', {
   getEnvConfig: () => ipcRenderer.invoke('get-env-config'),
@@ -81,15 +90,13 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.invoke('start-health-check', config),
   stopHealthCheck: () => ipcRenderer.invoke('stop-health-check'),
   // MP3 → MP4 conversion (static cover image + audio)
-  convertMp3ToMp4: (
-    opts: {
-      imagePath: string
-      audioPaths: string[]
-      outputDir?: string
-      filenamePrefix?: string
-      ffmpegPath?: string
-    }
-  ) => ipcRenderer.invoke('convert-mp3-to-mp4', opts),
+  convertMp3ToMp4: (opts: {
+    imagePath: string
+    audioPaths: string[]
+    outputDir?: string
+    filenamePrefix?: string
+    ffmpegPath?: string
+  }) => ipcRenderer.invoke('convert-mp3-to-mp4', opts),
   cancelMp3ToMp4: () => ipcRenderer.invoke('cancel-mp3-to-mp4'),
   concatMp3s: (audioBase64Array: string[]) => ipcRenderer.invoke('concat-mp3s', audioBase64Array),
   mergeEpisodeAudio: (opts: {
@@ -117,5 +124,27 @@ contextBridge.exposeInMainWorld('electron', {
     price: number
     publishDatetime: string
     note: string
-  }) => ipcRenderer.invoke('readrealm-upload-chapter', opts)
+  }) => ipcRenderer.invoke('readrealm-upload-chapter', opts),
+
+  // YouTube Publisher
+  youtubeSaveSecret: (opts: { clientSecret: string }) =>
+    ipcRenderer.invoke('youtube-save-secret', opts),
+  youtubeConnect: () => ipcRenderer.invoke('youtube-connect'),
+  youtubeStatus: () => ipcRenderer.invoke('youtube-status'),
+  youtubeDisconnect: () => ipcRenderer.invoke('youtube-disconnect'),
+  youtubeListPlaylists: () => ipcRenderer.invoke('youtube-list-playlists'),
+  youtubeListUploaded: () => ipcRenderer.invoke('youtube-list-uploaded'),
+  youtubeUploadVideo: (opts: {
+    videoPath: string
+    title: string
+    description: string
+    tags: string[]
+    categoryId: string
+    privacyStatus: 'public' | 'unlisted' | 'private'
+    publishAt?: string
+    defaultLanguage?: string
+    playlistId?: string
+    thumbnailPath?: string
+  }) => ipcRenderer.invoke('youtube-upload-video', opts),
+  cancelYoutubeUpload: () => ipcRenderer.invoke('cancel-youtube-upload')
 })
