@@ -33,6 +33,7 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
   const [audioPaths, setAudioPaths] = useState<string[]>([])
   const [outputDir, setOutputDir] = useState<string>('')
   const [filenamePrefix, setFilenamePrefix] = useState<string>('')
+  const [useGpu, setUseGpu] = useState<boolean>(true)
   const [converting, setConverting] = useState(false)
   const [results, setResults] = useState<{ outputs: string[]; errors: string[] } | null>(null)
   const [isDraggingOverImage, setIsDraggingOverImage] = useState(false)
@@ -59,6 +60,7 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
           setOutputDir(cfg.mp4OutputPath || '')
           setImagePath(cfg.mp4ImagePath || '')
           setFilenamePrefix(cfg.mp4FilenamePrefix || '')
+          setUseGpu(cfg.mp4UseGpu ?? true)
           setConfigReady(true)
         }
       })
@@ -77,10 +79,11 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
       .saveConfigPatch({
         mp4OutputPath: outputDir,
         mp4ImagePath: imagePath,
-        mp4FilenamePrefix: filenamePrefix
+        mp4FilenamePrefix: filenamePrefix,
+        mp4UseGpu: useGpu
       })
       .catch(() => {})
-  }, [configReady, outputDir, imagePath, filenamePrefix])
+  }, [configReady, outputDir, imagePath, filenamePrefix, useGpu])
 
   useEffect(() => {
     let canceled = false
@@ -134,10 +137,9 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
   }, [])
 
   const browseAudio = useCallback(async () => {
-    const files = await window.electron.openFile([{ name: 'MP3 Audio', extensions: ['mp3'] }])
-    if (files) {
-      // openFile returns single path; if multiple needed, use openDialog manually
-      setAudioPaths((prev) => [...prev, files])
+    const files = await window.electron.openFiles([{ name: 'MP3 Audio', extensions: ['mp3'] }])
+    if (files.length > 0) {
+      setAudioPaths((prev) => [...prev, ...files])
     }
   }, [])
 
@@ -230,7 +232,8 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
         imagePath,
         audioPaths,
         outputDir: outputDir || undefined,
-        filenamePrefix: filenamePrefix.trim() || undefined
+        filenamePrefix: filenamePrefix.trim() || undefined,
+        useGpu
       })
       if (res.canceled) {
         setResults({
@@ -246,7 +249,7 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
     } finally {
       setConverting(false)
     }
-  }, [imagePath, audioPaths, outputDir, filenamePrefix])
+  }, [imagePath, audioPaths, outputDir, filenamePrefix, useGpu])
 
   const canConvert = imagePath && audioPaths.length > 0 && !converting
   const handleCancel = useCallback(() => {
@@ -382,6 +385,18 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
           />
           <div style={s.hint}>Output example: {exampleName}</div>
         </div>
+
+        {/* GPU acceleration */}
+        <label style={s.gpuRow}>
+          <input
+            type="checkbox"
+            checked={useGpu}
+            onChange={(e) => setUseGpu(e.target.checked)}
+            disabled={converting}
+          />
+          <span>เร่งด้วย GPU (NVIDIA NVENC)</span>
+          <span style={s.hint}>ถ้าเครื่องไม่มี GPU จะถอยไปใช้ CPU ให้อัตโนมัติ</span>
+        </label>
 
         {/* Convert Button */}
         <button
@@ -705,6 +720,15 @@ const s: Record<string, React.CSSProperties> = {
     fontSize: 12,
     color: 'var(--accent)',
     textDecoration: 'underline'
+  },
+  gpuRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    fontSize: 13,
+    color: 'var(--text1)',
+    cursor: 'pointer',
+    flexWrap: 'wrap'
   },
   convertBtn: {
     marginTop: 8,

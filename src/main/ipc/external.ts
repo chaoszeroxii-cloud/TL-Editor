@@ -219,6 +219,45 @@ function resolveFfprobeBinary(ffmpegPath?: string): string {
   return resolveBundledFfprobePath() || 'ffprobe'
 }
 
+// Whether this ffmpeg build lists the NVIDIA NVENC H.264 encoder. Cached after
+// the first probe (the `-encoders` listing doesn't change between runs).
+// Note: "listed" ≠ "usable" — a build can advertise nvenc on a machine with no
+// NVIDIA GPU/driver, so the actual encode still falls back to libx264 on error.
+let nvencListedCache: boolean | null = null
+function isNvencListed(ffmpegPath?: string): Promise<boolean> {
+  if (nvencListedCache !== null) return Promise.resolve(nvencListedCache)
+  return new Promise((resolve) => {
+    try {
+      const proc = spawn(resolveFfmpegBinary(ffmpegPath), ['-hide_banner', '-encoders'], {
+        windowsHide: true
+      })
+      let out = ''
+      proc.stdout?.on('data', (c) => (out += String(c)))
+      proc.on('error', () => resolve((nvencListedCache = false)))
+      proc.on('close', () => resolve((nvencListedCache = /h264_nvenc/.test(out))))
+    } catch {
+      resolve((nvencListedCache = false))
+    }
+  })
+}
+
+// Codec-specific ffmpeg args for the still-image audiobook video. GPU path uses
+// NVENC (offloads encoding to the NVIDIA card); CPU path keeps the prior libx264
+// settings. Both target a tiny file (high qp/crf) since the frame never changes.
+function videoEncodeArgs(useGpu: boolean): string[] {
+  if (useGpu) {
+    // prettier-ignore
+    return ['-c:v', 'h264_nvenc', '-preset', 'p1', '-rc', 'constqp', '-qp', '51', '-pix_fmt', 'yuv420p']
+  }
+  return ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '51', '-pix_fmt', 'yuv420p']
+}
+
+// nvenc can be listed but fail at runtime (no NVIDIA GPU, driver too old, all
+// encode sessions busy). Detect those so we can transparently retry on CPU.
+function isNvencRuntimeError(message: string): boolean {
+  return /nvenc|cuda|no capable devices|OpenEncodeSession|Cannot load|driver/i.test(message)
+}
+
 function getAudioDurationSeconds(audioPath: string, ffmpegPath?: string): Promise<number> {
   return new Promise((resolve) => {
     const ffprobeBin = resolveFfprobeBinary(ffmpegPath)
@@ -1029,6 +1068,7 @@ export function registerExternalHandlers(): void {
         outputDir?: string
         filenamePrefix?: string
         ffmpegPath?: string
+        useGpu?: boolean
       }
     ) => {
       const outputs: string[] = []
@@ -1042,6 +1082,10 @@ export function registerExternalHandlers(): void {
 
       await fsPromises.access(imagePath)
       const total = audioPaths.length
+
+      // Use GPU (NVENC) when requested and this ffmpeg build advertises it. May
+      // flip to false mid-batch if the first encode reveals nvenc isn't usable.
+      let gpuEnabled = opts.useGpu !== false && (await isNvencListed(opts.ffmpegPath))
 
       for (const [index, audioPath] of audioPaths.entries()) {
         try {
@@ -1078,58 +1122,64 @@ export function registerExternalHandlers(): void {
             targetPath = result.filePath
           }
 
-          await runFfmpeg(
-            [
-              '-loop',
-              '1',
-              '-framerate',
-              '1',
-              '-i',
-              imagePath,
-              '-i',
-              audioPath,
-              '-map',
-              '0:v',
-              '-map',
-              '1:a',
-              '-r',
-              '10',
-              '-c:v',
-              'libx264',
-              '-preset',
-              'ultrafast',
-              '-crf',
-              '51',
-              '-pix_fmt',
-              'yuv420p',
-              '-acodec',
-              'copy',
-              '-y',
-              '-shortest',
-              targetPath
-            ],
-            opts.ffmpegPath,
-            (encodedSeconds) => {
-              const filePercent =
-                durationSeconds > 0
-                  ? Math.min(100, Math.round((encodedSeconds / durationSeconds) * 100))
-                  : 0
-              const overallPercent = Math.min(
-                99,
-                Math.round(((index + filePercent / 100) / total) * 100)
-              )
-              emitMp4Progress({
-                phase: 'progress',
-                current: index + 1,
-                total,
-                percent: overallPercent,
-                filePercent,
-                elapsedSeconds: encodedSeconds,
-                totalSeconds: durationSeconds,
-                fileName
-              })
+          const onProgress = (encodedSeconds: number): void => {
+            const filePercent =
+              durationSeconds > 0
+                ? Math.min(100, Math.round((encodedSeconds / durationSeconds) * 100))
+                : 0
+            const overallPercent = Math.min(
+              99,
+              Math.round(((index + filePercent / 100) / total) * 100)
+            )
+            emitMp4Progress({
+              phase: 'progress',
+              current: index + 1,
+              total,
+              percent: overallPercent,
+              filePercent,
+              elapsedSeconds: encodedSeconds,
+              totalSeconds: durationSeconds,
+              fileName
+            })
+          }
+
+          const buildArgs = (gpu: boolean): string[] => [
+            '-loop',
+            '1',
+            '-framerate',
+            '1',
+            '-i',
+            imagePath,
+            '-i',
+            audioPath,
+            '-map',
+            '0:v',
+            '-map',
+            '1:a',
+            '-r',
+            '10',
+            ...videoEncodeArgs(gpu),
+            '-acodec',
+            'copy',
+            '-y',
+            '-shortest',
+            targetPath
+          ]
+
+          try {
+            await runFfmpeg(buildArgs(gpuEnabled), opts.ffmpegPath, onProgress)
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            // NVENC was listed but isn't actually usable here — disable it for the
+            // rest of the batch and retry this file on CPU. (Not on user cancel.)
+            if (gpuEnabled && !cancelMp4ConversionRequested && isNvencRuntimeError(msg)) {
+              nvencListedCache = false
+              gpuEnabled = false
+              await runFfmpeg(buildArgs(false), opts.ffmpegPath, onProgress)
+            } else {
+              throw err
             }
-          )
+          }
 
           outputs.push(targetPath)
           emitMp4Progress({

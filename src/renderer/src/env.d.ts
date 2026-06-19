@@ -51,6 +51,7 @@ interface _EnvConfig {
   mp4OutputPath: string
   mp4ImagePath: string
   mp4FilenamePrefix: string
+  mp4UseGpu: boolean
   pairingSourcePath: string
   mergeAudioSourceDir: string
   mergeAudioOutputDir: string
@@ -68,6 +69,7 @@ interface _EnvConfig {
   youtubeCategoryId: string
   youtubePlaylistId: string
   youtubeIntervalHrs: number
+  youtubeAppendPlaylistLink: boolean
 }
 
 interface _SaveConfigPayload {
@@ -88,6 +90,7 @@ interface _SaveConfigPayload {
   mp4OutputPath?: string
   mp4ImagePath?: string
   mp4FilenamePrefix?: string
+  mp4UseGpu?: boolean
   pairingSourcePath?: string
   mergeAudioSourceDir?: string
   mergeAudioOutputDir?: string
@@ -104,6 +107,7 @@ interface _SaveConfigPayload {
   youtubeCategoryId?: string
   youtubePlaylistId?: string
   youtubeIntervalHrs?: number
+  youtubeAppendPlaylistLink?: boolean
 }
 
 
@@ -153,6 +157,7 @@ interface ElectronAPI {
 
   // ── File dialogs ─────────────────────────────────────────────────────────
   openFile: (filters?: { name: string; extensions: string[] }[]) => Promise<string | null>
+  openFiles: (filters?: { name: string; extensions: string[] }[]) => Promise<string[]>
   openFolder: () => Promise<string | null>
   getPathForFile: (file: File) => string
   approvePaths: (paths: string[]) => Promise<void>
@@ -188,6 +193,7 @@ interface ElectronAPI {
     outputDir?: string
     filenamePrefix?: string
     ffmpegPath?: string
+    useGpu?: boolean
   }) => Promise<{ canceled?: boolean; outputs: string[]; errors: string[] }>
   cancelMp3ToMp4: () => Promise<boolean>
   /** Concatenate base64 MP3 segments via ffmpeg stream copy. Returns base64 result. */

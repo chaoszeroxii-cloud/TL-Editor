@@ -19,6 +19,17 @@ export function registerDialogHandlers(): void {
     return result.canceled ? null : result.filePaths[0]
   })
 
+  // Multi-select variant — returns all chosen paths (empty array on cancel).
+  ipcMain.handle('open-files', async (_e, filters?: { name: string; extensions: string[] }[]) => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile', 'multiSelections'],
+      filters: filters ?? [{ name: 'All Files', extensions: ['*'] }]
+    })
+    if (result.canceled) return []
+    for (const p of result.filePaths) approvePath(p)
+    return result.filePaths
+  })
+
   ipcMain.handle('approve-paths', async (_e, filePaths?: string[]) => {
     for (const p of (filePaths ?? []).filter(Boolean)) {
       try {

@@ -28,6 +28,7 @@ export interface AppConfig {
   mp4OutputPath?: string
   mp4ImagePath?: string
   mp4FilenamePrefix?: string
+  mp4UseGpu?: boolean
   pairingSourcePath?: string
   mergeAudioSourceDir?: string
   mergeAudioOutputDir?: string
@@ -45,6 +46,7 @@ export interface AppConfig {
   youtubeCategoryId?: string
   youtubePlaylistId?: string
   youtubeIntervalHrs?: number
+  youtubeAppendPlaylistLink?: boolean
 }
 
 // ─── Keytar helpers (secure credential storage) ───────────────────────────────
@@ -139,6 +141,7 @@ export function registerConfigHandlers(): void {
       mp4OutputPath: cfg.mp4OutputPath ?? '',
       mp4ImagePath: cfg.mp4ImagePath ?? '',
       mp4FilenamePrefix: cfg.mp4FilenamePrefix ?? '',
+      mp4UseGpu: cfg.mp4UseGpu ?? true,
       pairingSourcePath: cfg.pairingSourcePath ?? '',
       mergeAudioSourceDir: cfg.mergeAudioSourceDir ?? '',
       mergeAudioOutputDir: cfg.mergeAudioOutputDir ?? '',
@@ -156,7 +159,8 @@ export function registerConfigHandlers(): void {
       youtubeTags: cfg.youtubeTags ?? '',
       youtubeCategoryId: cfg.youtubeCategoryId ?? '22',
       youtubePlaylistId: cfg.youtubePlaylistId ?? '',
-      youtubeIntervalHrs: cfg.youtubeIntervalHrs ?? 24
+      youtubeIntervalHrs: cfg.youtubeIntervalHrs ?? 24,
+      youtubeAppendPlaylistLink: cfg.youtubeAppendPlaylistLink ?? true
     }
   })
 

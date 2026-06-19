@@ -48,6 +48,12 @@ interface YouTubePanelProps {
 // Default daily quota (10,000) / videos.insert cost (1,600) ≈ 6 uploads/session.
 const SESSION_UPLOAD_CAP = 6
 
+// Default video title = the clip's filename without extension ({filename}). The
+// old default was '{novel} บทที่ {n}'; we migrate that one legacy value so saved
+// configs adopt the new behavior, while leaving any other customized template be.
+const DEFAULT_TITLE_TEMPLATE = '{filename}'
+const LEGACY_TITLE_TEMPLATE = '{novel} บทที่ {n}'
+
 // ─── Utilities (shared shape with ReadRealmPanel) ───────────────────────────────
 
 function naturalKey(name: string): (number | string)[] {
@@ -101,6 +107,23 @@ function formatThDate(utcIso: string): string {
   return `${th.getUTCDate()} ${TH_MONTHS[th.getUTCMonth()]} ${String(th.getUTCHours()).padStart(2, '0')}:${String(th.getUTCMinutes()).padStart(2, '0')}`
 }
 
+// YouTube can't add real playlist cards via its API, so we drive viewers to the
+// full playlist by appending this link line to each clip's description instead.
+const PLAYLIST_LINK_LABEL = '▶ ฟังต่อทั้งเรื่อง (เพลย์ลิสต์):'
+
+function playlistUrl(id: string): string {
+  return `https://www.youtube.com/playlist?list=${id}`
+}
+
+// Returns the description actually sent to YouTube: the base description plus the
+// playlist link line when enabled and a playlist is selected. Built fresh at
+// send time (not stored in state) so re-uploads never double-append the link.
+function descriptionWithPlaylistLink(base: string, playlistId: string, enabled: boolean): string {
+  if (!enabled || !playlistId) return base
+  const linkLine = `${PLAYLIST_LINK_LABEL} ${playlistUrl(playlistId)}`
+  return base.trim() ? `${base.trimEnd()}\n\n${linkLine}` : linkLine
+}
+
 function applyTemplate(
   tpl: string,
   vars: { novel: string; n: number | null; filename: string }
@@ -129,7 +152,7 @@ export function YouTubePanel({ onClose }: YouTubePanelProps): JSX.Element {
 
   // Global metadata
   const [novelName, setNovelName] = useState('')
-  const [titleTemplate, setTitleTemplate] = useState('{novel} บทที่ {n}')
+  const [titleTemplate, setTitleTemplate] = useState(DEFAULT_TITLE_TEMPLATE)
   const [description, setDescription] = useState('')
   const [tags, setTags] = useState('')
   const [categoryId, setCategoryId] = useState('22')
@@ -137,6 +160,7 @@ export function YouTubePanel({ onClose }: YouTubePanelProps): JSX.Element {
   const [playlistId, setPlaylistId] = useState('')
   const [useThumbnail, setUseThumbnail] = useState(true)
   const [thumbnailPath, setThumbnailPath] = useState('')
+  const [appendPlaylistLink, setAppendPlaylistLink] = useState(true)
 
   // Schedule
   const [scheduleFrom, setScheduleFrom] = useState('')
@@ -166,12 +190,17 @@ export function YouTubePanel({ onClose }: YouTubePanelProps): JSX.Element {
         setClientId(cfg.youtubeClientId || '')
         setFolder(cfg.youtubeFolder || '')
         setNovelName(cfg.youtubeNovelName || cfg.mp4FilenamePrefix || '')
-        setTitleTemplate(cfg.youtubeTitleTemplate || '{novel} บทที่ {n}')
+        setTitleTemplate(
+          !cfg.youtubeTitleTemplate || cfg.youtubeTitleTemplate === LEGACY_TITLE_TEMPLATE
+            ? DEFAULT_TITLE_TEMPLATE
+            : cfg.youtubeTitleTemplate
+        )
         setDescription(cfg.youtubeDescription || '')
         setTags(cfg.youtubeTags || '')
         setCategoryId(cfg.youtubeCategoryId || '22')
         setPlaylistId(cfg.youtubePlaylistId || '')
         setIntervalHrs(cfg.youtubeIntervalHrs || 24)
+        setAppendPlaylistLink(cfg.youtubeAppendPlaylistLink ?? true)
         setThumbnailPath(cfg.mp4ImagePath || '')
         configReady.current = true
 
@@ -209,7 +238,8 @@ export function YouTubePanel({ onClose }: YouTubePanelProps): JSX.Element {
         youtubeTags: tags,
         youtubeCategoryId: categoryId,
         youtubePlaylistId: playlistId,
-        youtubeIntervalHrs: intervalHrs
+        youtubeIntervalHrs: intervalHrs,
+        youtubeAppendPlaylistLink: appendPlaylistLink
       })
       .catch(() => {})
   }, [
@@ -221,7 +251,8 @@ export function YouTubePanel({ onClose }: YouTubePanelProps): JSX.Element {
     tags,
     categoryId,
     playlistId,
-    intervalHrs
+    intervalHrs,
+    appendPlaylistLink
   ])
 
   // ── Auto-load files when folder set ─────────────────────────────────────────
@@ -456,7 +487,11 @@ export function YouTubePanel({ onClose }: YouTubePanelProps): JSX.Element {
         const res = await window.electron.youtubeUploadVideo({
           videoPath: file.path,
           title: file.title,
-          description: file.description,
+          description: descriptionWithPlaylistLink(
+            file.description,
+            playlistId,
+            appendPlaylistLink
+          ),
           tags: tagList,
           categoryId,
           privacyStatus,
@@ -519,7 +554,8 @@ export function YouTubePanel({ onClose }: YouTubePanelProps): JSX.Element {
     useThumbnail,
     thumbnailPath,
     scheduleFrom,
-    intervalHrs
+    intervalHrs,
+    appendPlaylistLink
   ])
 
   const handleCancel = useCallback(() => {
@@ -634,7 +670,7 @@ export function YouTubePanel({ onClose }: YouTubePanelProps): JSX.Element {
             </div>
             <input
               style={s.input}
-              placeholder="Title template — {novel} บทที่ {n}"
+              placeholder="Title template — {filename} (ชื่อไฟล์), {novel}, {n}"
               value={titleTemplate}
               onChange={(e) => setTitleTemplate(e.target.value)}
               spellCheck={false}
@@ -667,6 +703,20 @@ export function YouTubePanel({ onClose }: YouTubePanelProps): JSX.Element {
                 ))}
               </select>
             </div>
+            <label style={{ ...s.checkRow, opacity: playlistId ? 1 : 0.5 }}>
+              <input
+                type="checkbox"
+                checked={appendPlaylistLink}
+                disabled={!playlistId}
+                onChange={(e) => setAppendPlaylistLink(e.target.checked)}
+              />
+              แปะลิงก์เพลย์ลิสต์ท้าย description (แทนการ์ด)
+            </label>
+            {appendPlaylistLink && playlistId && (
+              <div style={s.preview}>
+                {PLAYLIST_LINK_LABEL} {playlistUrl(playlistId)}
+              </div>
+            )}
             <label style={s.checkRow}>
               <input
                 type="checkbox"

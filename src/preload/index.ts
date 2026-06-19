@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld('electron', {
   openrouterChat: (opts: Record<string, unknown>) => ipcRenderer.invoke('openrouter-chat', opts),
   openFile: (filters?: { name: string; extensions: string[] }[]) =>
     ipcRenderer.invoke('open-file', filters),
+  openFiles: (filters?: { name: string; extensions: string[] }[]) =>
+    ipcRenderer.invoke('open-files', filters),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   approvePaths: (paths: string[]) => ipcRenderer.invoke('approve-paths', paths),
   on: (channel: string, cb: (...args: unknown[]) => void) => {
