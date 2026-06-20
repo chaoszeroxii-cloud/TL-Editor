@@ -7,6 +7,7 @@ import {
   startTransition,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useCallback,
   type JSX,
@@ -47,6 +48,13 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts' //  FIXED
 
 import { countMatches } from './utils/highlight'
 import { computeFlagNoteMap } from './utils/reviewFlags'
+import {
+  lineAtTime,
+  timelineSidecarPath,
+  noAudioSidecarPath,
+  baseNameNoExt,
+  type AudioTimeline
+} from './utils/audioTimeline'
 import { findTranslationPair } from './hooks/useChapterPairing'
 import { type GlossaryLibraries } from './utils/glossaryLoader'
 
@@ -484,6 +492,109 @@ export default function App(): JSX.Element {
     [handleRefresh, files.mp3Path]
   )
 
+  // ── Audio "karaoke": highlight the line currently being read back ───────────
+  // Smart Gen writes a per-line timeline sidecar next to the MP3 (see useTtsGen).
+  // When the MP3 we're playing is the audio for the chapter currently open, map
+  // playback time → row and light that row up in the editor. Guarded on the file
+  // name so a *different* chapter's audio never highlights the wrong rows.
+  const [playingRow, setPlayingRow] = useState<number | null>(null)
+  const playTimelineRef = useRef<AudioTimeline | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setPlayingRow(null)
+    playTimelineRef.current = null
+
+    const mp3 = files.mp3Path
+    const tgt = files.tgtPath
+    if (!mp3 || mp3.startsWith('blob:') || !tgt) return
+    if (baseNameNoExt(mp3) !== baseNameNoExt(tgt)) return // not this chapter's audio
+    const sidecar = timelineSidecarPath(mp3)
+    if (!sidecar) return
+    ;(async () => {
+      try {
+        const json = await window.electron.readFileOptional(sidecar)
+        if (cancelled || !json) return
+        const tl = JSON.parse(json) as AudioTimeline
+        if (tl?.lines?.length && tl.chapter === baseNameNoExt(tgt)) {
+          playTimelineRef.current = tl
+        }
+      } catch {
+        /* missing / unreadable sidecar → no highlight, that's fine */
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [files.mp3Path, files.tgtPath, audioReloadToken])
+
+  // Called on every animation frame by the AudioPlayer; cheap binary search, and
+  // we only setState when the active row actually changes (no per-frame renders).
+  const handleAudioTime = useCallback((current: number) => {
+    const tl = playTimelineRef.current
+    if (!tl) return
+    const row = current <= 0 ? null : lineAtTime(tl.lines, current)
+    setPlayingRow((prev) => (prev === row ? prev : row))
+  }, [])
+
+  // ── Manual "no-audio" lines ─────────────────────────────────────────────────
+  // Lines the user marks (checkbox in the row gutter) as having no voice — e.g.
+  // "....", scene breaks, symbol-only lines that TTS can't read. Smart Gen skips
+  // them: not generated, not counted as "changed", not retried, and omitted from
+  // both the audio and the timeline. Keyed by trimmed text so the mark survives
+  // line renumbering and auto-applies to identical lines, and persisted next to
+  // the chapter so it sticks across sessions.
+  const [noAudioLines, setNoAudioLines] = useState<Set<string>>(new Set())
+  const noAudioRef = useRef<Set<string>>(noAudioLines)
+  useEffect(() => {
+    noAudioRef.current = noAudioLines
+  }, [noAudioLines])
+
+  useEffect(() => {
+    const tgt = files.tgtPath
+    if (!tgt) {
+      setNoAudioLines(new Set())
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const sidecar = noAudioSidecarPath(tgt)
+        const json = sidecar ? await window.electron.readFileOptional(sidecar) : null
+        if (cancelled) return
+        const arr = json ? (JSON.parse(json) as string[]) : []
+        setNoAudioLines(new Set(arr))
+      } catch {
+        if (!cancelled) setNoAudioLines(new Set())
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [files.tgtPath])
+
+  const toggleNoAudio = useCallback(
+    (text: string) => {
+      const key = text.trim()
+      if (!key) return
+      const next = new Set(noAudioRef.current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      noAudioRef.current = next
+      setNoAudioLines(next)
+      const sidecar = files.tgtPath ? noAudioSidecarPath(files.tgtPath) : null
+      if (sidecar) {
+        window.electron
+          .writeFileEnsureDir(sidecar, JSON.stringify([...next]))
+          .catch((e) => console.warn('[noAudio] save failed', e))
+      }
+    },
+    [files.tgtPath]
+  )
+
+  const isNoAudioText = useCallback((text: string) => noAudioLines.has(text.trim()), [noAudioLines])
+
   // ── TTS generation engine (drives the floating popover + regen chip) ─────────
   const ttsGen = useTtsGen({
     config: app.ttsConfig,
@@ -491,6 +602,7 @@ export default function App(): JSX.Element {
     tgtPath: files.tgtPath,
     tgtContent: files.tgtContent,
     getLineTone: (idx) => files.getLineTone(idx) as ToneName,
+    isNoAudioText,
     onPlayTtsAudio: handlePlayTtsAudio,
     onAudioSaved: handleAudioSaved
   })
@@ -676,6 +788,7 @@ export default function App(): JSX.Element {
                   key={files.mp3Path}
                   filePath={files.mp3Path}
                   reloadToken={audioReloadToken}
+                  onTimeUpdate={handleAudioTime}
                   onClose={() => {
                     if (files.mp3Path?.startsWith('blob:')) URL.revokeObjectURL(files.mp3Path)
                     files.setMp3Path(null)
@@ -700,6 +813,9 @@ export default function App(): JSX.Element {
                   onSrcRedo={files.handleSrcRedo}
                   activeRow={files.activeRow}
                   onRowFocus={files.setActiveRow}
+                  playingRow={playingRow}
+                  isNoAudioText={isNoAudioText}
+                  onToggleNoAudio={toggleNoAudio}
                   onCopyTgt={files.handleCopyTgt}
                   onCopySrc={files.handleCopySrc}
                   onAddToGlossary={handleAddToGlossary}

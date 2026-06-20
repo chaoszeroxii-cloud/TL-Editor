@@ -88,6 +88,12 @@ export interface DualViewProps {
   onSrcRedo: () => void
   activeRow: number
   onRowFocus: (row: number) => void
+  /** Row currently being read back by the audio player (karaoke highlight), or null. */
+  playingRow?: number | null
+  /** True for a TGT line the user marked "no audio" (gutter checkbox). Text-keyed. */
+  isNoAudioText?: (text: string) => boolean
+  /** Toggle a TGT line's "no audio" mark (Smart Gen skips it). */
+  onToggleNoAudio?: (text: string) => void
   tgtLabel?: string
   srcLabel?: string
   tgtColor?: string
@@ -219,6 +225,9 @@ export function DualView({
   onSrcRedo,
   activeRow,
   onRowFocus,
+  playingRow = null,
+  isNoAudioText,
+  onToggleNoAudio,
   tgtLabel = 'TRANSLATION',
   srcLabel = 'SOURCE',
   tgtColor = '#3ecfa0',
@@ -646,6 +655,13 @@ export function DualView({
   useEffect(() => {
     if (editingRow !== null) scrollIntoView(editingRow)
   }, [editingRow, scrollIntoView])
+
+  // Gently follow audio playback: keep the line being read in view, but never
+  // yank the viewport while the user is editing a row. scrollIntoView only nudges
+  // when the row is actually off-screen, so a visible playing row stays put.
+  useEffect(() => {
+    if (playingRow !== null && editingRow === null) scrollIntoView(playingRow)
+  }, [playingRow, editingRow, scrollIntoView])
 
   // ── Find matches ────────────────────────────────────────────────────────────
   const findMatches = useMemo((): FindMatch[] => {
@@ -1109,6 +1125,9 @@ export function DualView({
                 srcText={cleanSrcRows[i] ?? ''}
                 glossary={glossary}
                 isActive={activeRow === i}
+                isPlaying={playingRow === i}
+                noAudio={isNoAudioText?.(cleanTgtRows[i] ?? '') ?? false}
+                onToggleNoAudio={onToggleNoAudio}
                 onMouseEnter={onRowFocus}
                 isEditing={editingRow === i}
                 editingCol={editingRow === i ? editingCol : 'tgt'}

@@ -13,6 +13,14 @@ import type { GlossaryLibraries } from '../../utils/glossaryLoader'
 import { loadGlossariesFromConfig } from '../../utils/glossaryLoader'
 import { filterUsedGlossariesFromRecord } from '../../utils/ttsPreprocess'
 import { getToneConfig, type ToneName, type VoiceGender } from '../../constants/tones'
+import { mp3DurationSec, base64ToUint8 } from '../../utils/mp3Duration'
+import {
+  AUDIO_TIMELINE_VERSION,
+  baseNameNoExt,
+  timelineSidecarPath,
+  type AudioTimeline,
+  type TimelineLine
+} from '../../utils/audioTimeline'
 import type { TtsApiConfig } from './ttsConstants'
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
@@ -39,6 +47,12 @@ export interface UseTtsGenParams {
   tgtPath?: string | null
   tgtContent?: string
   getLineTone?: (lineIndex: number) => ToneName
+  /**
+   * True for lines the user manually marked "no audio" (gutter checkbox). Such
+   * lines are never synthesised, never counted as changed, and omitted from the
+   * concatenated MP3 + its timeline. Keyed by line text.
+   */
+  isNoAudioText?: (text: string) => boolean
   onPlayTtsAudio?: (blob: Blob) => void
   /** Called after an MP3 is saved (with its path) — host refreshes the tree and
    *  reloads the player if it's currently playing that file. */
@@ -102,9 +116,12 @@ export function useTtsGen({
   tgtPath,
   tgtContent,
   getLineTone,
+  isNoAudioText,
   onPlayTtsAudio,
   onAudioSaved
 }: UseTtsGenParams): TtsGen {
+  // Stable predicate: treat undefined as "nothing is marked no-audio".
+  const isNoAudio = useCallback((text: string) => isNoAudioText?.(text) ?? false, [isNoAudioText])
   // Glossary CONTENT comes live from the App store (the `glossaries` param), so a
   // newly added entry is sent on the next gen. We still resolve the on-disk file
   // paths here — purely for the ⚙ status display ("✓ at_lib: at_lib.json").
@@ -194,7 +211,9 @@ export function useTtsGen({
   )
 
   const changedCount =
-    lastGenLines.length > 0 ? currentLines.filter((l) => !lineAudioCache.current.has(l)).length : 0
+    lastGenLines.length > 0
+      ? currentLines.filter((l) => !isNoAudio(l) && !lineAudioCache.current.has(l)).length
+      : 0
 
   const isGenerating =
     smartStatus === 'generating' || ttsStatus === 'generating' || tonesStatus === 'generating'
@@ -256,8 +275,12 @@ export function useTtsGen({
 
       const apiUrl = config.apiUrl.trim()
       const lines = (tgtContent || '').split('\n').filter((l) => l.trim())
+      // Lines the user marked "no audio" are never synthesised.
+      const voiceable = lines.filter((l) => !isNoAudio(l))
       const toGen = [
-        ...new Set(regenChangedOnly ? lines.filter((l) => !lineAudioCache.current.has(l)) : lines)
+        ...new Set(
+          regenChangedOnly ? voiceable.filter((l) => !lineAudioCache.current.has(l)) : voiceable
+        )
       ]
 
       if (!regenChangedOnly) {
@@ -330,8 +353,8 @@ export function useTtsGen({
           Array.from({ length: Math.min(CONCURRENCY, toGen.length) }, () => generateNext())
         )
 
-        // The chapter's last line optionally gets the "จบตอน" end marker.
-        const lastLine = lines[lines.length - 1]
+        // The chapter's last *voiceable* line optionally gets the "จบตอน" end marker.
+        const lastLine = voiceable[voiceable.length - 1]
         if (
           appendEndOnLast &&
           lastLine &&
@@ -364,16 +387,38 @@ export function useTtsGen({
 
         const _tFetch = performance.now()
 
-        // Assemble segments in content order (failed lines are omitted).
-        const lastIdx = lines.length - 1
-        const ordered = lines
-          .map((l, i) =>
-            i === lastIdx && appendEndOnLast
+        // Assemble segments in content order (failed lines are omitted), keeping
+        // each segment's full-content row index (incl. blank lines) so the play
+        // timeline maps onto the editor's row indices.
+        const allLines = (tgtContent || '').split('\n')
+        let lastVoiceableIdx = -1
+        for (let k = allLines.length - 1; k >= 0; k--) {
+          if (allLines[k].trim() && !isNoAudio(allLines[k])) {
+            lastVoiceableIdx = k
+            break
+          }
+        }
+        const orderedSegs: { row: number; b64: string }[] = []
+        allLines.forEach((l, idx) => {
+          if (!l.trim() || isNoAudio(l)) return
+          const seg =
+            idx === lastVoiceableIdx && appendEndOnLast
               ? (endLineAudioCache.current.get(l) ?? lineAudioCache.current.get(l))
               : lineAudioCache.current.get(l)
-          )
-          .filter((b): b is string => !!b)
+          if (seg) orderedSegs.push({ row: idx, b64: seg })
+        })
+        const ordered = orderedSegs.map((s) => s.b64)
         if (!ordered.length) throw new Error('ไม่มี audio segments — ทุก line ล้มเหลว')
+
+        // Per-line play timeline: cumulative segment durations. Built from the same
+        // bytes we concat (stream-copy `-c copy`), so offsets line up exactly with
+        // the merged MP3. Header-only duration parse — no PCM decode (RAM-tight).
+        let acc = 0
+        const timelineLines: TimelineLine[] = orderedSegs.map((s) => {
+          const entry: TimelineLine = { row: s.row, start: acc }
+          acc += mp3DurationSec(base64ToUint8(s.b64))
+          return entry
+        })
 
         setSmartMsg('กำลัง concat เสียง…')
         const combinedBase64 = await window.electron.concatMp3s(ordered)
@@ -386,6 +431,24 @@ export function useTtsGen({
               ?.replace(/\.[^.]+$/, '')}.mp3`
           : 'voice.mp3'
         await window.electron.saveAudioFile(combinedBase64, filename, config.outputPath)
+        const savedPath = `${config.outputPath.replace(/[\\/]+$/, '')}/${filename}`
+
+        // Persist the timeline sidecar next to the MP3 (best-effort: if it fails the
+        // audio is still saved, the editor just won't karaoke-highlight playback).
+        try {
+          const sidecar = timelineSidecarPath(savedPath)
+          if (sidecar) {
+            const timeline: AudioTimeline = {
+              v: AUDIO_TIMELINE_VERSION,
+              chapter: baseNameNoExt(savedPath),
+              totalSec: acc,
+              lines: timelineLines
+            }
+            await window.electron.writeFileEnsureDir(sidecar, JSON.stringify(timeline))
+          }
+        } catch (err) {
+          console.warn('[SmartGen] timeline sidecar save failed', err)
+        }
 
         console.log(
           `[SmartGen] fetch=${Math.round(_tFetch - _t0)}ms concat=${Math.round(
@@ -402,14 +465,14 @@ export function useTtsGen({
             : `✓ ${filename} (${lines.length} บรรทัด)`
         )
         setSmartProgress(null)
-        onAudioSaved?.(`${config.outputPath.replace(/[\\/]+$/, '')}/${filename}`)
+        onAudioSaved?.(savedPath)
       } catch (e) {
         setSmartStatus('error')
         setSmartMsg(e instanceof Error ? e.message.slice(0, 160) : String(e))
         setSmartProgress(null)
       }
     },
-    [tgtContent, config, glossaries, tgtPath, onAudioSaved, appendEndOnLast]
+    [tgtContent, config, glossaries, tgtPath, onAudioSaved, appendEndOnLast, isNoAudio]
   )
 
   // ── Full-chapter generate + save (WebSocket stream) ─────────────────────────

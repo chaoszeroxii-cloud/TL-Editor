@@ -1,21 +1,9 @@
-import {
-  memo,
-  useRef,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useCallback,
-  useState,
-  JSX
-} from 'react'
+import { memo, useRef, useEffect, useLayoutEffect, useMemo, useCallback, JSX } from 'react'
 import type { GlossaryEntry } from '../../types'
-import type { MatchedEntry } from '../../hooks/useAutocomplete'
 import { tokenize, HL_COLORS, categoryOf } from '../../utils/highlight'
 import { showTooltip, hideTooltip } from '../common/tooltipUtils'
-import { GlossaryAutocomplete } from '../common/GlossaryAutocomplete'
 import { ToneSelector } from '../ToneSelector'
 import { VoiceGenderSelector } from '../VoiceGenderSelector'
-import { useAutocomplete } from '../../hooks/useAutocomplete'
 import { buildRenderSegs } from './findHighlight'
 import type { FindRange, FindSeg } from './findHighlight'
 import type { ToneName, VoiceGender } from '../../constants/tones'
@@ -134,6 +122,9 @@ export interface RowProps {
   onToneChange?: (tone: ToneName) => void
   voiceGender?: VoiceGender
   onVoiceGenderChange?: (gender: VoiceGender) => void
+  /** This line is marked "no audio" (TTS skips it). Renders a gutter checkbox + dims text. */
+  noAudio?: boolean
+  onToggleNoAudio?: () => void
 }
 
 export const Row = memo(function Row({
@@ -166,7 +157,9 @@ export const Row = memo(function Row({
   tone = 'normal',
   onToneChange,
   voiceGender = 'female',
-  onVoiceGenderChange
+  onVoiceGenderChange,
+  noAudio = false,
+  onToggleNoAudio
 }: RowProps): JSX.Element {
   const taRef = useRef<HTMLTextAreaElement>(null)
   const suppressBlurRef = useRef(false)
@@ -174,10 +167,6 @@ export const Row = memo(function Row({
 
   const localUndoStack = useRef<string[]>([])
   const localRedoStack = useRef<string[]>([])
-
-  // Autocomplete state
-  const autocomplete = useAutocomplete(glossary)
-  const [acModified, setAcModified] = useState(false)
 
   // Resize the textarea to fit its content exactly (1 line by default, grows as needed).
   // box-sizing is border-box, so scrollHeight (content + padding) omits the border —
@@ -191,10 +180,7 @@ export const Row = memo(function Row({
     if (isEditing) {
       localUndoStack.current = []
       localRedoStack.current = []
-      autocomplete.hide()
     }
-    // autocomplete.hide is stable (memoized), safe to include
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditing])
 
   const segments = useMemo(() => tokenize(text, glossary), [text, glossary])
@@ -249,49 +235,6 @@ export const Row = memo(function Row({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     const ta = e.currentTarget
-
-    // ── Autocomplete navigation ────────────────────────────────────────────
-    if (autocomplete.state.visible) {
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        autocomplete.selectPrev()
-        setAcModified(!acModified) // Trigger re-render
-        return
-      }
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        autocomplete.selectNext()
-        setAcModified(!acModified)
-        return
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        const selected = autocomplete.getSelected()
-        if (selected) {
-          // Replace word at cursor with selected entry (only the matched field)
-          const start = ta.selectionStart
-          const word = autocomplete.extractWordAtCursor(ta.value, start)
-          const wordStart = start - word.length
-          const insertText = selected.entry[selected.matchField]
-          const newValue = ta.value.slice(0, wordStart) + insertText + ta.value.slice(start)
-          ta.value = newValue
-          ta.dataset.prev = newValue
-          ta.setSelectionRange(wordStart + insertText.length, wordStart + insertText.length)
-          autocomplete.hide()
-          setAcModified(!acModified)
-          // Update undo stack
-          localUndoStack.current.push(text)
-          localRedoStack.current = []
-        }
-        return
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        autocomplete.hide()
-        setAcModified(!acModified)
-        return
-      }
-    }
 
     if (e.ctrlKey || e.metaKey) {
       if (e.code === 'KeyS') {
@@ -400,65 +343,10 @@ export const Row = memo(function Row({
       return
     }
     if (e.key === 'Escape') {
-      if (autocomplete.state.visible) {
-        autocomplete.hide()
-        setAcModified(!acModified)
-      } else {
-        suppressBlurRef.current = true
-        onStopEdit()
-      }
+      suppressBlurRef.current = true
+      onStopEdit()
     }
   }
-
-  // ── Handle input changes to trigger autocomplete ────────────────────────
-  const handleInput = (e: React.FormEvent<HTMLTextAreaElement>): void => {
-    const ta = e.currentTarget
-    const cursorPos = ta.selectionStart
-
-    // Get cursor position on screen for dropdown placement
-    const ta_rect = ta.getBoundingClientRect()
-    const cursorX = ta_rect.left + 10
-    const cursorY = ta_rect.top + 20
-
-    // Show autocomplete
-    autocomplete.show(ta.value, cursorPos, cursorX, cursorY)
-    setAcModified(!acModified)
-  }
-
-  // ── Handle autocomplete selection ──────────────────────────────────────
-  const handleAutocompleteSelect = useCallback(
-    (matched: MatchedEntry): void => {
-      if (!taRef.current) return
-      const ta = taRef.current
-      const start = ta.selectionStart
-      const word = autocomplete.extractWordAtCursor(ta.value, start)
-      const wordStart = start - word.length
-      // Insert only the matched field (src or th)
-      const insertText = matched.entry[matched.matchField]
-      const newValue = ta.value.slice(0, wordStart) + insertText + ta.value.slice(start)
-
-      ta.value = newValue
-      ta.dataset.prev = newValue
-      ta.setSelectionRange(wordStart + insertText.length, wordStart + insertText.length)
-      ta.focus()
-      autocomplete.hide()
-      setAcModified(!acModified)
-
-      // Update undo stack
-      localUndoStack.current.push(text)
-      localRedoStack.current = []
-    },
-    [autocomplete, text, acModified]
-  )
-
-  const handleAutocompleteHover = useCallback(
-    (index: number): void => {
-      // Update selected index on mouse hover
-      autocomplete.selectByIndex(index)
-      setAcModified(!acModified)
-    },
-    [autocomplete, acModified]
-  )
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     const pasted = e.clipboardData.getData('text')
@@ -539,18 +427,51 @@ export const Row = memo(function Row({
           flexShrink: 0,
           display: 'flex',
           alignItems: 'flex-start',
-          justifyContent: 'flex-end',
-          padding: '6px 10px 6px 0',
+          justifyContent: onToggleNoAudio ? 'space-between' : 'flex-end',
+          padding: onToggleNoAudio ? '6px 10px 6px 2px' : '6px 10px 6px 0',
           fontFamily: 'var(--font-mono)',
           fontSize: 11,
           lineHeight: 1.5,
           borderRight: '1px solid var(--border)',
           userSelect: 'none',
-          pointerEvents: 'none',
+          pointerEvents: onToggleNoAudio ? 'auto' : 'none',
           color: isActive ? 'var(--accent)' : 'var(--text2)'
         }}
       >
-        {rowNum}
+        {onToggleNoAudio && (
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleNoAudio()
+            }}
+            title={
+              noAudio
+                ? 'บรรทัดนี้ตั้งว่าไม่มีเสียง — คลิกเพื่อให้เจนเสียงอีกครั้ง'
+                : 'ตั้งให้บรรทัดนี้ไม่มีเสียง (Smart Gen จะข้าม)'
+            }
+            style={{
+              marginTop: 1,
+              width: 12,
+              height: 12,
+              flexShrink: 0,
+              cursor: 'pointer',
+              borderRadius: 3,
+              border: `1px solid ${noAudio ? 'var(--hl-coral)' : 'var(--border)'}`,
+              background: noAudio ? 'var(--hl-coral)' : 'transparent',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 9,
+              lineHeight: 1,
+              padding: 0
+            }}
+          >
+            {noAudio ? '✕' : ''}
+          </button>
+        )}
+        <span style={{ pointerEvents: 'none' }}>{rowNum}</span>
       </div>
       {!isSrc && tone && onToneChange && (
         <div
@@ -577,56 +498,45 @@ export const Row = memo(function Row({
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
         {editable && isEditing ? (
-          <>
-            <textarea
-              ref={taRef}
-              rows={1}
-              defaultValue={text}
-              onChange={(e) => {
-                const ta = e.currentTarget,
-                  prev = taRef.current?.dataset.prev ?? text
-                if (prev !== ta.value) {
-                  localUndoStack.current.push(prev)
-                  if (localUndoStack.current.length > 200) localUndoStack.current.shift()
-                  localRedoStack.current = []
-                  ta.dataset.prev = ta.value
-                }
-                autoResize(ta)
-              }}
-              onBlur={handleBlur}
-              onKeyDown={handleKeyDown}
-              onInput={handleInput}
-              onPaste={handlePaste}
-              style={{
-                width: '100%',
-                padding: '5px 12px',
-                background: 'var(--bg2)',
-                // outline (not border) for the focus frame — it has color but does NOT
-                // take layout space, so the edited row stays the same height as read-only.
-                border: 'none',
-                borderRadius: 0,
-                color: 'var(--text0)',
-                fontFamily: 'var(--font-ui)',
-                fontSize: 13,
-                lineHeight: 1.7,
-                resize: 'none',
-                outline: '1px solid var(--accent)',
-                outlineOffset: '-1px',
-                boxSizing: 'border-box',
-                height: 'auto',
-                minHeight: ROW_H + 'px',
-                overflow: 'hidden'
-              }}
-            />
-            <GlossaryAutocomplete
-              visible={autocomplete.state.visible}
-              matches={autocomplete.state.matches}
-              selectedIndex={autocomplete.state.selectedIndex}
-              cursorPos={autocomplete.state.cursorPos}
-              onSelect={handleAutocompleteSelect}
-              onMouseEnter={handleAutocompleteHover}
-            />
-          </>
+          <textarea
+            ref={taRef}
+            rows={1}
+            defaultValue={text}
+            onChange={(e) => {
+              const ta = e.currentTarget,
+                prev = taRef.current?.dataset.prev ?? text
+              if (prev !== ta.value) {
+                localUndoStack.current.push(prev)
+                if (localUndoStack.current.length > 200) localUndoStack.current.shift()
+                localRedoStack.current = []
+                ta.dataset.prev = ta.value
+              }
+              autoResize(ta)
+            }}
+            onBlur={handleBlur}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            style={{
+              width: '100%',
+              padding: '5px 12px',
+              background: 'var(--bg2)',
+              // outline (not border) for the focus frame — it has color but does NOT
+              // take layout space, so the edited row stays the same height as read-only.
+              border: 'none',
+              borderRadius: 0,
+              color: 'var(--text0)',
+              fontFamily: 'var(--font-ui)',
+              fontSize: 13,
+              lineHeight: 1.7,
+              resize: 'none',
+              outline: '1px solid var(--accent)',
+              outlineOffset: '-1px',
+              boxSizing: 'border-box',
+              height: 'auto',
+              minHeight: ROW_H + 'px',
+              overflow: 'hidden'
+            }}
+          />
         ) : (
           <div
             style={{
@@ -639,7 +549,10 @@ export const Row = memo(function Row({
               userSelect: 'text',
               color: isEmpty ? 'var(--text2)' : 'var(--text0)',
               fontStyle: isEmpty ? 'italic' : 'normal',
-              cursor: editable ? 'text' : 'default'
+              cursor: editable ? 'text' : 'default',
+              // Marked "no audio": dim + strike so it's obvious TTS will skip it.
+              opacity: noAudio ? 0.45 : undefined,
+              textDecoration: noAudio ? 'line-through' : undefined
             }}
             onClick={() => editable && onStartEdit()}
           >

@@ -11,6 +11,11 @@ export interface VRowPairProps {
   srcText: string
   glossary: GlossaryEntry[]
   isActive: boolean
+  /** This row is the line currently being read back by the audio player. */
+  isPlaying?: boolean
+  /** This TGT line is marked "no audio" — Smart Gen skips it. */
+  noAudio?: boolean
+  onToggleNoAudio?: (text: string) => void
   onMouseEnter: (i: number) => void
   isEditing: boolean
   editingCol: 'tgt' | 'src'
@@ -60,6 +65,9 @@ export const VRowPair = memo(function VRowPair({
   srcText,
   glossary,
   isActive,
+  isPlaying = false,
+  noAudio = false,
+  onToggleNoAudio,
   onMouseEnter,
   isEditing,
   editingCol,
@@ -145,6 +153,7 @@ export const VRowPair = memo(function VRowPair({
     [onVoiceGenderChange, rowIndex]
   )
   const polish = useCallback(() => onPolishRow?.(rowIndex), [onPolishRow, rowIndex])
+  const toggleNoAudio = useCallback(() => onToggleNoAudio?.(tgtText), [onToggleNoAudio, tgtText])
 
   const isTgtEditing = isEditing && editingCol === 'tgt'
   const isSrcEditing = isEditing && editingCol === 'src'
@@ -164,16 +173,20 @@ export const VRowPair = memo(function VRowPair({
         minHeight: ROW_H,
         borderBottom: '1px solid var(--border)',
         marginBottom: 2,
-        borderLeft: flagNote
-          ? '3px solid var(--hl-gold)'
-          : diffPending
-            ? '3px solid rgba(91,138,240,0.5)'
-            : undefined,
-        background: flagNote
-          ? 'rgba(184,154,80,0.04)'
-          : diffPending
-            ? 'rgba(91,138,240,0.05)'
-            : undefined
+        borderLeft: isPlaying
+          ? '3px solid var(--hl-teal)'
+          : flagNote
+            ? '3px solid var(--hl-gold)'
+            : diffPending
+              ? '3px solid rgba(91,138,240,0.5)'
+              : undefined,
+        background: isPlaying
+          ? 'rgba(62,207,160,0.12)'
+          : flagNote
+            ? 'rgba(184,154,80,0.04)'
+            : diffPending
+              ? 'rgba(91,138,240,0.05)'
+              : undefined
       }}
     >
       <div
@@ -269,6 +282,8 @@ export const VRowPair = memo(function VRowPair({
           text={tgtText}
           glossary={glossary}
           isActive={isActive}
+          noAudio={noAudio}
+          onToggleNoAudio={onToggleNoAudio ? toggleNoAudio : undefined}
           onMouseEnter={enter}
           editable
           isEditing={isTgtEditing}
