@@ -38,6 +38,21 @@ describe('highlight utility', () => {
       expect(result).toEqual([{ kind: 'text', text: 'hello world' }])
     })
 
+    it('does not match a one-letter pronoun entry against common words', () => {
+      // Regression: "I" (→ ข้า) used to match "is" via case-insensitive "I"+"s".
+      const gloss: GlossaryEntry[] = [{ src: 'I', th: 'ข้า' }]
+      const result = tokenize('his body is injured', gloss)
+      expect(result.filter((s) => s.kind === 'match')).toHaveLength(0)
+    })
+
+    it('still inflects real words (sword → swords)', () => {
+      const gloss: GlossaryEntry[] = [{ src: 'sword', th: 'ดาบ' }]
+      const result = tokenize('he drew two swords', gloss)
+      const matches = result.filter((s) => s.kind === 'match')
+      expect(matches).toHaveLength(1)
+      expect(matches[0].text).toBe('swords')
+    })
+
     it('prefers the longer match when keys overlap (longest-match-wins)', () => {
       // "เทพ" (idx 0) and "พลังปราณ" (idx 2) share the "พ" in "เทพลังปราณ".
       // Plain leftmost regex would pick "เทพ"; we want "พลังปราณ" to win.

@@ -8,14 +8,12 @@
 
 import type { GlossaryEntry } from '../types'
 import { categoryOf } from './highlight'
+import { termPattern } from './termPattern'
 
-/** True if entry.src appears in srcContent (word-boundary aware for Latin terms). */
+/** True if entry.src appears in srcContent (word-boundary + inflection aware for Latin terms). */
 export function matchEntryInText(entry: GlossaryEntry, srcContent: string): boolean {
   if (!entry.src || !srcContent) return false
-  const isLatin = /[A-Za-z]/.test(entry.src)
-  const esc = entry.src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const pat = isLatin ? new RegExp(`\\b${esc}(?:'s|s|es|ed|ing|er|ers)?\\b`, 'i') : new RegExp(esc)
-  return pat.test(srcContent)
+  return new RegExp(termPattern(entry.src), 'i').test(srcContent)
 }
 
 /** Subset of `glossary` whose terms are present in `srcContent`. */

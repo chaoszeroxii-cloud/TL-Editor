@@ -1,5 +1,6 @@
 import type { GlossaryEntry } from '../types'
 import { collectOverlappingMatches, pickLongestNonOverlapping } from './longestMatch'
+import { allowSuffixExpansion, termPattern } from './termPattern'
 
 // ─── Color definitions ────────────────────────────────────────────────────────
 
@@ -63,7 +64,7 @@ function compile(glossary: GlossaryEntry[]): { re: RegExp; map: Map<string, Glos
     // Also index by lowercase so the gi-flag regex match can always find its entry
     // regardless of whether src is "Senior Sister" and text has "senior sister" or vice versa.
     map.set(g.src.toLowerCase(), g)
-    if (/[A-Za-z]$/.test(g.src)) {
+    if (allowSuffixExpansion(g.src)) {
       for (const sfx of ["'s", 's', 'es', 'ed', 'ing', 'er', 'ers']) {
         map.set(g.src + sfx, g)
         map.set(g.src.toLowerCase() + sfx, g)
@@ -79,18 +80,7 @@ function compile(glossary: GlossaryEntry[]): { re: RegExp; map: Map<string, Glos
     }
   }
 
-  const needsBoundary = (src: string): boolean => /[A-Za-z0-9]/.test(src)
-  const pat = sorted
-    .map((g) => {
-      const esc = g.src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      if (!needsBoundary(g.src)) return esc
-      if (/[^e]e$/i.test(g.src)) {
-        const edropEsc = esc.slice(0, -1)
-        return `\\b(?:${esc}(?:'s|s|es)?|${edropEsc}(?:ed|ing|er|ers))\\b`
-      }
-      return `\\b${esc}(?:'s|s|es|ed|ing|er|ers)?\\b`
-    })
-    .join('|')
+  const pat = sorted.map((g) => termPattern(g.src)).join('|')
 
   let re: RegExp
   try {

@@ -2,6 +2,7 @@ import { useState, memo, useMemo, useCallback, useEffect, useRef, JSX } from 're
 import type { GlossaryEntry, GlossaryFileFormat } from '../../types'
 import { serializeGlossary, hasNestedPaths, serializeToNested } from '../../utils/glossaryParsers'
 import { categoryOf } from '../../utils/highlight'
+import { matchEntryInText } from '../../utils/glossaryMatch'
 import { EntryRow } from './EntryRow'
 import { EntryForm } from './EntryForm'
 import { DrillView } from './DrillView'
@@ -239,14 +240,7 @@ export const GlossaryPanel = memo(function GlossaryPanel({
       if (!currentContent) return
       const source =
         fileFilter !== undefined ? glossary.filter((g) => g._file === fileFilter) : glossary
-      const found = source.filter((g) => {
-        if (!g.src) return false
-        const esc = g.src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        const pat = /[A-Za-z]/.test(g.src)
-          ? new RegExp(`\\b${esc}(?:'s|s|es|ed|ing|er|ers)?\\b`, 'i')
-          : new RegExp(esc)
-        return pat.test(currentContent)
-      })
+      const found = source.filter((g) => matchEntryInText(g, currentContent))
       if (!found.length) return
       const serialized = fileFilter
         ? serializeGlossary(found, sourceFileFormats[fileFilter])

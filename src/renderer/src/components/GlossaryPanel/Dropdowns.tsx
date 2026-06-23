@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, JSX } from 'react'
 import type { GlossaryEntry } from '../../types'
+import { matchEntryInText } from '../../utils/glossaryMatch'
 import { IcoDownload } from '../common/icons'
 
 // ─── ExportDropdown ───────────────────────────────────────────────────────────
@@ -32,15 +33,7 @@ export function ExportDropdown({
   }, [open])
 
   const countFor = (file: string): number =>
-    glossary.filter((g) => {
-      if (g._file !== file || !g.src) return false
-      const isLatin = /[A-Za-z]/.test(g.src)
-      const esc = g.src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const pat = isLatin
-        ? new RegExp(`\\b${esc}(?:'s|s|es|ed|ing|er|ers)?\\b`, 'i')
-        : new RegExp(esc)
-      return pat.test(currentContent)
-    }).length
+    glossary.filter((g) => g._file === file && matchEntryInText(g, currentContent)).length
 
   const items = [
     { label: 'ทุกไฟล์', count: matchCount, value: undefined },
