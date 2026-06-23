@@ -37,6 +37,21 @@ describe('highlight utility', () => {
       const result = tokenize('hello world', [])
       expect(result).toEqual([{ kind: 'text', text: 'hello world' }])
     })
+
+    it('prefers the longer match when keys overlap (longest-match-wins)', () => {
+      // "เทพ" (idx 0) and "พลังปราณ" (idx 2) share the "พ" in "เทพลังปราณ".
+      // Plain leftmost regex would pick "เทพ"; we want "พลังปราณ" to win.
+      const gloss: GlossaryEntry[] = [
+        { src: 'เทพ', th: 'deity' },
+        { src: 'พลังปราณ', th: 'qi' }
+      ]
+      const result = tokenize('การเทพลังปราณ', gloss)
+      const matches = result.filter((s) => s.kind === 'match')
+      expect(matches).toHaveLength(1)
+      expect(matches[0].text).toBe('พลังปราณ')
+      // The leftover "เท" must remain as plain text (not eaten by a stray match)
+      expect(result.map((s) => s.text).join('')).toBe('การเทพลังปราณ')
+    })
   })
 
   describe('countMatches', () => {

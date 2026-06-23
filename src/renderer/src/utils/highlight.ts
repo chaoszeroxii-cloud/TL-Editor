@@ -1,4 +1,5 @@
 import type { GlossaryEntry } from '../types'
+import { collectOverlappingMatches, pickLongestNonOverlapping } from './longestMatch'
 
 // ─── Color definitions ────────────────────────────────────────────────────────
 
@@ -107,16 +108,19 @@ export function tokenize(text: string, glossary: GlossaryEntry[]): Segment[] {
   if (!glossary.length || !text) return [{ kind: 'text', text }]
 
   const { re, map } = compile(glossary)
-  re.lastIndex = 0
+
+  // Longest-match-wins: collect every (possibly overlapping) match, then keep the
+  // longest non-overlapping set so e.g. "พลังปราณ" wins over "เทพ" in
+  // "เทพลังปราณ" (they share the "พ" — plain regex would pick the leftmost "เทพ").
+  const chosen = pickLongestNonOverlapping(collectOverlappingMatches(text, re))
 
   const segs: Segment[] = []
   let last = 0
-  let m: RegExpExecArray | null
 
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) segs.push({ kind: 'text', text: text.slice(last, m.index) })
+  for (const span of chosen) {
+    if (span.start > last) segs.push({ kind: 'text', text: text.slice(last, span.start) })
 
-    const matched = m[0]
+    const matched = span.text
     const entry =
       map.get(matched) ??
       map.get(matched.toLowerCase()) ??
@@ -140,7 +144,7 @@ export function tokenize(text: string, glossary: GlossaryEntry[]): Segment[] {
     } else {
       segs.push({ kind: 'match', text: matched, entry })
     }
-    last = m.index + matched.length
+    last = span.end
   }
 
   if (last < text.length) segs.push({ kind: 'text', text: text.slice(last) })
@@ -151,8 +155,5 @@ export function tokenize(text: string, glossary: GlossaryEntry[]): Segment[] {
 export function countMatches(text: string, glossary: GlossaryEntry[]): number {
   if (!glossary.length || !text) return 0
   const { re } = compile(glossary)
-  re.lastIndex = 0
-  let n = 0
-  while (re.exec(text) !== null) n++
-  return n
+  return pickLongestNonOverlapping(collectOverlappingMatches(text, re)).length
 }

@@ -8,6 +8,7 @@
 //   3. No glossary match                      → keep original text
 
 import type { GlossaryEntry } from '../types'
+import { collectOverlappingMatches, pickLongestNonOverlapping } from './longestMatch'
 
 // ── Check if note is a phonetic hint ─────────────────────────────────────────
 // Treats any note containing | as a pronunciation guide
@@ -60,8 +61,6 @@ function buildReplacementMap(glossary: GlossaryEntry[]): Map<string, string> {
  * Filters glossary record to only include entries actually found in the text.
  * Works with Record<string, string> where keys are source terms.
  * Returns empty object if text is empty or no entries are found.
- * Checks longer keys first (like buildReplacementMap) so shorter substring keys
- * don't shadow longer matches.
  */
 export function filterUsedGlossariesFromRecord(
   text: string,
@@ -71,10 +70,7 @@ export function filterUsedGlossariesFromRecord(
 
   const result: Record<string, string> = {}
 
-  // Sort longest-first so longer keys are checked (and inserted) before shorter ones
-  const entries = Object.entries(glossaryRecord).sort(([a], [b]) => b.length - a.length)
-
-  for (const [src, translation] of entries) {
+  for (const [src, translation] of Object.entries(glossaryRecord)) {
     if (src.trim() && text.includes(src)) {
       result[src] = translation
     }
@@ -136,7 +132,8 @@ export function preprocessForTtsFromRecords(
   const merged = { ...bfLib, ...atLib }
   if (!Object.keys(merged).length) return text
 
-  // Sort by length (longest first) to avoid partial replacements
+  // Sort by length (longest first) so the regex prefers the longest alternative
+  // at any given start position.
   const keys = Object.keys(merged).sort((a, b) => b.length - a.length)
 
   // Build alternation regex
@@ -155,9 +152,22 @@ export function preprocessForTtsFromRecords(
     return text // regex compile failed → return original
   }
 
-  return text.replace(re, (matched) => {
-    return merged[matched] ?? merged[matched.toLowerCase()] ?? matched
-  })
+  // Longest-match-wins: collect every (possibly overlapping) match, then keep the
+  // longest non-overlapping set. This makes "พลังปราณ" win over "เทพ" in
+  // "เทพลังปราณ" where the two keys share the "พ".
+  const chosen = pickLongestNonOverlapping(collectOverlappingMatches(text, re))
+  if (!chosen.length) return text
+
+  let out = ''
+  let pos = 0
+  for (const span of chosen) {
+    out += text.slice(pos, span.start)
+    const replacement = merged[span.text] ?? merged[span.text.toLowerCase()] ?? span.text
+    out += replacement
+    pos = span.end
+  }
+  out += text.slice(pos)
+  return out
 }
 
 /**
@@ -188,7 +198,17 @@ export function preprocessForTts(text: string, glossary: GlossaryEntry[]): strin
     return text // regex compile failed → return original
   }
 
-  return text.replace(re, (matched) => {
-    return map.get(matched) ?? map.get(matched.toLowerCase()) ?? matched
-  })
+  // Longest-match-wins (see preprocessForTtsFromRecords for rationale)
+  const chosen = pickLongestNonOverlapping(collectOverlappingMatches(text, re))
+  if (!chosen.length) return text
+
+  let out = ''
+  let pos = 0
+  for (const span of chosen) {
+    out += text.slice(pos, span.start)
+    out += map.get(span.text) ?? map.get(span.text.toLowerCase()) ?? span.text
+    pos = span.end
+  }
+  out += text.slice(pos)
+  return out
 }
