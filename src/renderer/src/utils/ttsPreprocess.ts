@@ -60,6 +60,8 @@ function buildReplacementMap(glossary: GlossaryEntry[]): Map<string, string> {
  * Filters glossary record to only include entries actually found in the text.
  * Works with Record<string, string> where keys are source terms.
  * Returns empty object if text is empty or no entries are found.
+ * Checks longer keys first (like buildReplacementMap) so shorter substring keys
+ * don't shadow longer matches.
  */
 export function filterUsedGlossariesFromRecord(
   text: string,
@@ -69,7 +71,10 @@ export function filterUsedGlossariesFromRecord(
 
   const result: Record<string, string> = {}
 
-  for (const [src, translation] of Object.entries(glossaryRecord)) {
+  // Sort longest-first so longer keys are checked (and inserted) before shorter ones
+  const entries = Object.entries(glossaryRecord).sort(([a], [b]) => b.length - a.length)
+
+  for (const [src, translation] of entries) {
     if (src.trim() && text.includes(src)) {
       result[src] = translation
     }
