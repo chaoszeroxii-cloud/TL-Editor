@@ -29,6 +29,7 @@ export interface AppConfig {
   mp4ImagePath?: string
   mp4FilenamePrefix?: string
   mp4UseGpu?: boolean
+  mp4BurnSubtitles?: boolean
   pairingSourcePath?: string
   mergeAudioSourceDir?: string
   mergeAudioOutputDir?: string
@@ -142,6 +143,7 @@ export function registerConfigHandlers(): void {
       mp4ImagePath: cfg.mp4ImagePath ?? '',
       mp4FilenamePrefix: cfg.mp4FilenamePrefix ?? '',
       mp4UseGpu: cfg.mp4UseGpu ?? true,
+      mp4BurnSubtitles: cfg.mp4BurnSubtitles ?? true,
       pairingSourcePath: cfg.pairingSourcePath ?? '',
       mergeAudioSourceDir: cfg.mergeAudioSourceDir ?? '',
       mergeAudioOutputDir: cfg.mergeAudioOutputDir ?? '',

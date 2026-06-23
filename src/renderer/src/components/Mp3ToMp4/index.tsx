@@ -34,6 +34,7 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
   const [outputDir, setOutputDir] = useState<string>('')
   const [filenamePrefix, setFilenamePrefix] = useState<string>('')
   const [useGpu, setUseGpu] = useState<boolean>(true)
+  const [burnSubtitles, setBurnSubtitles] = useState<boolean>(true)
   const [converting, setConverting] = useState(false)
   const [results, setResults] = useState<{ outputs: string[]; errors: string[] } | null>(null)
   const [isDraggingOverImage, setIsDraggingOverImage] = useState(false)
@@ -61,6 +62,7 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
           setImagePath(cfg.mp4ImagePath || '')
           setFilenamePrefix(cfg.mp4FilenamePrefix || '')
           setUseGpu(cfg.mp4UseGpu ?? true)
+          setBurnSubtitles(cfg.mp4BurnSubtitles ?? true)
           setConfigReady(true)
         }
       })
@@ -80,10 +82,11 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
         mp4OutputPath: outputDir,
         mp4ImagePath: imagePath,
         mp4FilenamePrefix: filenamePrefix,
-        mp4UseGpu: useGpu
+        mp4UseGpu: useGpu,
+        mp4BurnSubtitles: burnSubtitles
       })
       .catch(() => {})
-  }, [configReady, outputDir, imagePath, filenamePrefix, useGpu])
+  }, [configReady, outputDir, imagePath, filenamePrefix, useGpu, burnSubtitles])
 
   useEffect(() => {
     let canceled = false
@@ -233,13 +236,13 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
         audioPaths,
         outputDir: outputDir || undefined,
         filenamePrefix: filenamePrefix.trim() || undefined,
-        useGpu
+        useGpu,
+        burnSubtitles
       })
       if (res.canceled) {
         setResults({
           outputs: res.outputs,
-          errors:
-            res.errors.length > 0 ? res.errors : ['Canceled by user']
+          errors: res.errors.length > 0 ? res.errors : ['Canceled by user']
         })
       } else {
         setResults(res)
@@ -249,7 +252,7 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
     } finally {
       setConverting(false)
     }
-  }, [imagePath, audioPaths, outputDir, filenamePrefix, useGpu])
+  }, [imagePath, audioPaths, outputDir, filenamePrefix, useGpu, burnSubtitles])
 
   const canConvert = imagePath && audioPaths.length > 0 && !converting
   const handleCancel = useCallback(() => {
@@ -396,6 +399,20 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
           />
           <span>เร่งด้วย GPU (NVIDIA NVENC)</span>
           <span style={s.hint}>ถ้าเครื่องไม่มี GPU จะถอยไปใช้ CPU ให้อัตโนมัติ</span>
+        </label>
+
+        {/* Burn-in subtitles */}
+        <label style={s.gpuRow}>
+          <input
+            type="checkbox"
+            checked={burnSubtitles}
+            onChange={(e) => setBurnSubtitles(e.target.checked)}
+            disabled={converting}
+          />
+          <span>ฝังซับไทยซิงก์เสียง</span>
+          <span style={s.hint}>
+            ใช้ได้เฉพาะ MP3 ที่สร้างด้วย Smart-Gen (มีไฟล์ timeline) — อื่นๆ ข้ามอัตโนมัติ
+          </span>
         </label>
 
         {/* Convert Button */}

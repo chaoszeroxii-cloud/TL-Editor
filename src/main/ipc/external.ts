@@ -4,7 +4,9 @@ import { URL } from 'url'
 import { spawn } from 'child_process'
 import { basename, join } from 'path'
 import { existsSync, promises as fsPromises } from 'fs'
+import { tmpdir } from 'os'
 import * as https from 'https'
+import { assFromMp3Path, SUB_CANVAS_W, SUB_CANVAS_H } from './subtitles'
 
 // ─── Error logging utility ─────────────────────────────────────────────────────
 
@@ -200,6 +202,19 @@ function resolveBundledFfprobePath(): string | null {
   return null
 }
 
+// The bundled subtitle font (Sarabun). Not a system font, so libass loads it via
+// the subtitles filter's fontsdir — see the burn-in path in convert-mp3-to-mp4.
+function resolveBundledFontPath(): string | null {
+  const relativeParts = ['tools', 'fonts', 'Sarabun-Regular.ttf']
+  const packagedPath = join(process.resourcesPath, ...relativeParts)
+  if (existsSync(packagedPath)) return packagedPath
+
+  const devPath = join(app.getAppPath(), 'resources', ...relativeParts)
+  if (existsSync(devPath)) return devPath
+
+  return null
+}
+
 function parseTimestampToSeconds(raw: string): number {
   const match = raw.match(/(\d+):(\d+):(\d+(?:\.\d+)?)/)
   if (!match) return 0
@@ -243,13 +258,35 @@ function isNvencListed(ffmpegPath?: string): Promise<boolean> {
 
 // Codec-specific ffmpeg args for the still-image audiobook video. GPU path uses
 // NVENC (offloads encoding to the NVIDIA card); CPU path keeps the prior libx264
-// settings. Both target a tiny file (high qp/crf) since the frame never changes.
-function videoEncodeArgs(useGpu: boolean): string[] {
+// settings. Without subtitles the frame never changes, so we target a tiny file
+// (qp/crf 51). With burned-in subtitles that quality renders text as unreadable
+// mush, so `hiQuality` drops the quantiser and uses a slightly better preset —
+// only on the subtitle path, leaving the no-subtitle output byte-for-byte as before.
+function videoEncodeArgs(useGpu: boolean, hiQuality = false): string[] {
   if (useGpu) {
+    const qp = hiQuality ? '23' : '51'
+    const preset = hiQuality ? 'p4' : 'p1'
     // prettier-ignore
-    return ['-c:v', 'h264_nvenc', '-preset', 'p1', '-rc', 'constqp', '-qp', '51', '-pix_fmt', 'yuv420p']
+    return ['-c:v', 'h264_nvenc', '-preset', preset, '-rc', 'constqp', '-qp', qp, '-pix_fmt', 'yuv420p']
   }
-  return ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '51', '-pix_fmt', 'yuv420p']
+  const crf = hiQuality ? '20' : '51'
+  const preset = hiQuality ? 'veryfast' : 'ultrafast'
+  return ['-c:v', 'libx264', '-preset', preset, '-crf', crf, '-pix_fmt', 'yuv420p']
+}
+
+// Build the `-vf` value that scales/pads the cover to a fixed 1280×720 canvas
+// (so the ASS PlayResX/Y and font size stay predictable) then burns in the ASS
+// subtitle track. Escaping a Windows path inside an avfilter `subtitles=` value
+// is notoriously fragile (drive colons, spaces, the filtergraph's own escape
+// layer), so we sidestep it entirely: ffmpeg runs with cwd set to the .ass's
+// directory and the file is referenced by its bare ASCII basename here — no
+// colon/slash/space ever reaches the filtergraph. The bundled Sarabun font is
+// copied into that same cwd, so `fontsdir=.` lets libass find it without a path.
+function buildSubtitleVf(assFileName: string): string {
+  const scalePad =
+    `scale=${SUB_CANVAS_W}:${SUB_CANVAS_H}:force_original_aspect_ratio=decrease,` +
+    `pad=${SUB_CANVAS_W}:${SUB_CANVAS_H}:(ow-iw)/2:(oh-ih)/2`
+  return `${scalePad},subtitles=${assFileName}:fontsdir=.`
 }
 
 // nvenc can be listed but fail at runtime (no NVIDIA GPU, driver too old, all
@@ -290,11 +327,14 @@ function getAudioDurationSeconds(audioPath: string, ffmpegPath?: string): Promis
 function runFfmpeg(
   args: string[],
   ffmpegPath?: string,
-  onProgress?: (encodedSeconds: number) => void
+  onProgress?: (encodedSeconds: number) => void,
+  cwd?: string
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const ffmpegBin = resolveFfmpegBinary(ffmpegPath)
-    const proc = spawn(ffmpegBin, args, { windowsHide: true })
+    // cwd is set for subtitle burns so the `subtitles=` filter can use a bare
+    // filename (see buildSubtitleVf); harmless for absolute-path inputs/outputs.
+    const proc = spawn(ffmpegBin, args, { windowsHide: true, cwd })
     activeMp4Conversion = proc
     let stderr = ''
 
@@ -341,12 +381,21 @@ function rrGet(url: string, headers: Record<string, string> = {}): Promise<RRHtt
   return new Promise((resolve, reject) => {
     const u = new URL(url)
     const req = https.request(
-      { hostname: u.hostname, path: u.pathname + u.search, method: 'GET', headers: { 'User-Agent': RR_UA, ...headers } },
+      {
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        method: 'GET',
+        headers: { 'User-Agent': RR_UA, ...headers }
+      },
       (res) => {
         let body = ''
         res.on('data', (c: Buffer) => (body += c.toString()))
         res.on('end', () =>
-          resolve({ status: res.statusCode ?? 0, body, cookies: (res.headers['set-cookie'] as string[]) ?? [] })
+          resolve({
+            status: res.statusCode ?? 0,
+            body,
+            cookies: (res.headers['set-cookie'] as string[]) ?? []
+          })
         )
       }
     )
@@ -355,7 +404,12 @@ function rrGet(url: string, headers: Record<string, string> = {}): Promise<RRHtt
   })
 }
 
-function rrPost(url: string, bodyStr: string, headers: Record<string, string> = {}, method = 'POST'): Promise<RRHttp> {
+function rrPost(
+  url: string,
+  bodyStr: string,
+  headers: Record<string, string> = {},
+  method = 'POST'
+): Promise<RRHttp> {
   return new Promise((resolve, reject) => {
     const u = new URL(url)
     const buf = Buffer.from(bodyStr)
@@ -370,7 +424,11 @@ function rrPost(url: string, bodyStr: string, headers: Record<string, string> = 
         let body = ''
         res.on('data', (c: Buffer) => (body += c.toString()))
         res.on('end', () =>
-          resolve({ status: res.statusCode ?? 0, body, cookies: (res.headers['set-cookie'] as string[]) ?? [] })
+          resolve({
+            status: res.statusCode ?? 0,
+            body,
+            cookies: (res.headers['set-cookie'] as string[]) ?? []
+          })
         )
       }
     )
@@ -399,7 +457,7 @@ function cookieHeader(map: Record<string, string>): string {
 function parseJwtExp(token: string): number {
   try {
     const part = token.split('.')[1]
-    const padded = part + '='.repeat((-part.length % 4 + 4) % 4)
+    const padded = part + '='.repeat(((-part.length % 4) + 4) % 4)
     const payload = JSON.parse(Buffer.from(padded, 'base64url').toString()) as { exp?: number }
     return payload.exp ?? 0
   } catch {
@@ -447,7 +505,9 @@ async function rrGetToken(): Promise<string> {
   const username = await loadApiKey('readrealm-user')
   const password = await loadApiKey('readrealm-pass')
   if (!username || !password)
-    throw new Error('ReadRealm credentials not set — กรอก username/password ใน ReadRealm panel ก่อน')
+    throw new Error(
+      'ReadRealm credentials not set — กรอก username/password ใน ReadRealm panel ก่อน'
+    )
   rrToken = await rrLogin(username, password)
   rrTokenExpiry = parseJwtExp(rrToken)
   return rrToken
@@ -647,7 +707,10 @@ export function registerExternalHandlers(): void {
                 if (reasoningDelta) {
                   accumulatedReasoning += reasoningDelta
                   if (!e.sender.isDestroyed()) {
-                    e.sender.send('openrouter-stream-reasoning', { requestId, delta: reasoningDelta })
+                    e.sender.send('openrouter-stream-reasoning', {
+                      requestId,
+                      delta: reasoningDelta
+                    })
                   }
                 }
 
@@ -1069,6 +1132,7 @@ export function registerExternalHandlers(): void {
         filenamePrefix?: string
         ffmpegPath?: string
         useGpu?: boolean
+        burnSubtitles?: boolean
       }
     ) => {
       const outputs: string[] = []
@@ -1143,11 +1207,44 @@ export function registerExternalHandlers(): void {
             })
           }
 
+          // Optional burned-in subtitles: if this MP3 came from Smart-Gen its
+          // timeline sidecar (with per-line text) renders to an ASS track we
+          // overlay. No sidecar / a v1 sidecar / toggle off → null → the args
+          // below stay identical to the original still-image encode (parity).
+          // The .ass and the bundled Sarabun font share one working dir so ffmpeg
+          // can run from there and reference both by bare name (see buildSubtitleVf).
+          let assTempPath: string | null = null
+          let subCwd: string | undefined
+          if (opts.burnSubtitles) {
+            try {
+              const ass = await assFromMp3Path(audioPath)
+              if (ass) {
+                const workDir = join(tmpdir(), 'tl-editor-sub')
+                await fsPromises.mkdir(workDir, { recursive: true })
+                // Copy the bundled subtitle font in once so fontsdir=. resolves it.
+                const fontSrc = resolveBundledFontPath()
+                if (fontSrc) {
+                  const fontDst = join(workDir, basename(fontSrc))
+                  if (!existsSync(fontDst)) await fsPromises.copyFile(fontSrc, fontDst)
+                }
+                assTempPath = join(workDir, `tlsub_${Date.now()}_${index}.ass`)
+                await fsPromises.writeFile(assTempPath, ass, 'utf-8')
+                subCwd = workDir
+              }
+            } catch {
+              assTempPath = null
+              subCwd = undefined
+            }
+          }
+          const vfArg = assTempPath ? buildSubtitleVf(basename(assTempPath)) : null
+
           const buildArgs = (gpu: boolean): string[] => [
             '-loop',
             '1',
             '-framerate',
-            '1',
+            // A static image at 1 fps would only let the subtitles filter sample
+            // once a second (subs lag ~1s). Match the 10 fps output when burning.
+            vfArg ? '10' : '1',
             '-i',
             imagePath,
             '-i',
@@ -1158,7 +1255,8 @@ export function registerExternalHandlers(): void {
             '1:a',
             '-r',
             '10',
-            ...videoEncodeArgs(gpu),
+            ...(vfArg ? ['-vf', vfArg] : []),
+            ...videoEncodeArgs(gpu, !!vfArg),
             '-acodec',
             'copy',
             '-y',
@@ -1167,7 +1265,7 @@ export function registerExternalHandlers(): void {
           ]
 
           try {
-            await runFfmpeg(buildArgs(gpuEnabled), opts.ffmpegPath, onProgress)
+            await runFfmpeg(buildArgs(gpuEnabled), opts.ffmpegPath, onProgress, subCwd)
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err)
             // NVENC was listed but isn't actually usable here — disable it for the
@@ -1175,10 +1273,12 @@ export function registerExternalHandlers(): void {
             if (gpuEnabled && !cancelMp4ConversionRequested && isNvencRuntimeError(msg)) {
               nvencListedCache = false
               gpuEnabled = false
-              await runFfmpeg(buildArgs(false), opts.ffmpegPath, onProgress)
+              await runFfmpeg(buildArgs(false), opts.ffmpegPath, onProgress, subCwd)
             } else {
               throw err
             }
+          } finally {
+            if (assTempPath) await fsPromises.unlink(assTempPath).catch(() => {})
           }
 
           outputs.push(targetPath)
@@ -1452,19 +1552,22 @@ export function registerExternalHandlers(): void {
 
   // ── ReadRealm Publisher ───────────────────────────────────────────────────
 
-  ipcMain.handle('readrealm-save-credentials', async (_e, opts: { username: string; password: string }) => {
-    rrToken = null
-    rrTokenExpiry = 0
-    await saveApiKey('readrealm-user', opts.username)
-    await saveApiKey('readrealm-pass', opts.password)
-    try {
-      rrToken = await rrLogin(opts.username, opts.password)
-      rrTokenExpiry = parseJwtExp(rrToken)
-      return { success: true }
-    } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) }
+  ipcMain.handle(
+    'readrealm-save-credentials',
+    async (_e, opts: { username: string; password: string }) => {
+      rrToken = null
+      rrTokenExpiry = 0
+      await saveApiKey('readrealm-user', opts.username)
+      await saveApiKey('readrealm-pass', opts.password)
+      try {
+        rrToken = await rrLogin(opts.username, opts.password)
+        rrTokenExpiry = parseJwtExp(rrToken)
+        return { success: true }
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) }
+      }
     }
-  })
+  )
 
   ipcMain.handle('readrealm-get-token', async () => {
     try {
@@ -1531,10 +1634,15 @@ export function registerExternalHandlers(): void {
           chapter_publish_datetime: opts.publishDatetime
         })
         const method = isUpdate ? 'PUT' : 'POST'
-        const res = await rrPost(url, payload, {
-          ...rrAuthHeaders(token),
-          'Content-Type': 'application/json'
-        }, method)
+        const res = await rrPost(
+          url,
+          payload,
+          {
+            ...rrAuthHeaders(token),
+            'Content-Type': 'application/json'
+          },
+          method
+        )
         if (res.status !== 200 && res.status !== 201)
           throw new Error(`HTTP ${res.status}: ${res.body.slice(0, 300)}`)
         return { success: true }

@@ -98,6 +98,8 @@ contextBridge.exposeInMainWorld('electron', {
     outputDir?: string
     filenamePrefix?: string
     ffmpegPath?: string
+    useGpu?: boolean
+    burnSubtitles?: boolean
   }) => ipcRenderer.invoke('convert-mp3-to-mp4', opts),
   cancelMp3ToMp4: () => ipcRenderer.invoke('cancel-mp3-to-mp4'),
   concatMp3s: (audioBase64Array: string[]) => ipcRenderer.invoke('concat-mp3s', audioBase64Array),

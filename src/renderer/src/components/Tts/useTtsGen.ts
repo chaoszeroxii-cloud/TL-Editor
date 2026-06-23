@@ -415,7 +415,10 @@ export function useTtsGen({
         // the merged MP3. Header-only duration parse — no PCM decode (RAM-tight).
         let acc = 0
         const timelineLines: TimelineLine[] = orderedSegs.map((s) => {
-          const entry: TimelineLine = { row: s.row, start: acc }
+          // Carry the raw TGT line so the sidecar can drive burned-in subtitles
+          // later (MP3→MP4). allLines is the full split incl. blanks, so s.row
+          // indexes straight into it.
+          const entry: TimelineLine = { row: s.row, start: acc, text: allLines[s.row] }
           acc += mp3DurationSec(base64ToUint8(s.b64))
           return entry
         })

@@ -52,6 +52,7 @@ interface _EnvConfig {
   mp4ImagePath: string
   mp4FilenamePrefix: string
   mp4UseGpu: boolean
+  mp4BurnSubtitles: boolean
   pairingSourcePath: string
   mergeAudioSourceDir: string
   mergeAudioOutputDir: string
@@ -91,6 +92,7 @@ interface _SaveConfigPayload {
   mp4ImagePath?: string
   mp4FilenamePrefix?: string
   mp4UseGpu?: boolean
+  mp4BurnSubtitles?: boolean
   pairingSourcePath?: string
   mergeAudioSourceDir?: string
   mergeAudioOutputDir?: string
@@ -194,6 +196,7 @@ interface ElectronAPI {
     filenamePrefix?: string
     ffmpegPath?: string
     useGpu?: boolean
+    burnSubtitles?: boolean
   }) => Promise<{ canceled?: boolean; outputs: string[]; errors: string[] }>
   cancelMp3ToMp4: () => Promise<boolean>
   /** Concatenate base64 MP3 segments via ffmpeg stream copy. Returns base64 result. */

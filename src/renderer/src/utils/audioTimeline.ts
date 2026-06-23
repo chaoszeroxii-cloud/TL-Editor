@@ -9,13 +9,18 @@
 // is hidden, so the sidecar never shows up in the file tree and is never mistaken
 // for a glossary JSON (matching the convention the AI chat panel already uses).
 
-export const AUDIO_TIMELINE_VERSION = 1
+// v2 adds the per-line `text` so the same sidecar can drive burned-in subtitles
+// (MP3→MP4) without re-deriving text. v1 sidecars (no `text`) still load and
+// karaoke-highlight fine; they just can't produce subtitles until regenerated.
+export const AUDIO_TIMELINE_VERSION = 2
 
 export interface TimelineLine {
   /** 0-based index into the chapter's lines (matches DualView's row index). */
   row: number
   /** Playback offset in seconds where this line starts. */
   start: number
+  /** The line's display text (the raw TGT line). Optional: absent in v1 sidecars. */
+  text?: string
 }
 
 export interface AudioTimeline {

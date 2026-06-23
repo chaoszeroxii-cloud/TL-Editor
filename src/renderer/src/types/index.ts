@@ -79,6 +79,7 @@ export interface EnvConfig {
   mp4ImagePath: string
   mp4FilenamePrefix: string
   mp4UseGpu: boolean
+  mp4BurnSubtitles: boolean
   pairingSourcePath: string
 }
 
@@ -99,5 +100,6 @@ export interface SaveConfigPayload {
   mp4ImagePath?: string
   mp4FilenamePrefix?: string
   mp4UseGpu?: boolean
+  mp4BurnSubtitles?: boolean
   pairingSourcePath?: string
 }

@@ -11,6 +11,6 @@
     "strictPropertyInitialization": true,
     "noImplicitThis": true,
     "alwaysStrict": true,
-    "types": ["electron-vite/node"]
+    "types": ["electron-vite/node", "jest"]
   }
 }
