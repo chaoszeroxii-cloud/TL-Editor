@@ -934,7 +934,7 @@ export function registerExternalHandlers(): void {
           const record = activeRequests.get(requestId)
           if (record) record.req.abort()
           removeActiveRequest(requestId)
-          reject(new Error('TTS request timed out after 2m'))
+          reject(new Error('TTS request timed out after 10m'))
         }, timeout)
 
         const req = net.request({
@@ -1089,8 +1089,9 @@ export function registerExternalHandlers(): void {
       let filePath: string
 
       if (outputDir) {
-        // Auto-save to remembered directory
-        filePath = join(outputDir, defaultName)
+        // Auto-save to remembered directory. basename() strips any path segments
+        // in the caller-supplied name so it can't escape outputDir via "../".
+        filePath = join(outputDir, basename(defaultName))
       } else {
         // First time — ask user where to save
         const result = await dialog.showSaveDialog({
@@ -1120,7 +1121,7 @@ export function registerExternalHandlers(): void {
       let filePath: string
 
       if (outputDir) {
-        filePath = join(outputDir, defaultName)
+        filePath = join(outputDir, basename(defaultName))
       } else {
         const result = await dialog.showSaveDialog({
           defaultPath: defaultName,
@@ -1149,7 +1150,8 @@ export function registerExternalHandlers(): void {
         throw new Error('Output directory not specified')
       }
 
-      const filePath = join(outputDir, filename)
+      // basename() prevents a "../"-laden filename from escaping outputDir.
+      const filePath = join(outputDir, basename(filename))
       const buf = Buffer.from(base64, 'base64')
       await writeFile(filePath, buf)
       return filePath

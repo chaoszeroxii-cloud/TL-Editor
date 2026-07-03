@@ -150,3 +150,14 @@ body,
     opacity: 0;
   }
 }
+
+/* Loading spinner rotation. Defined here (not inline) because the production CSP
+   uses style-src 'self' with a nonce and no 'unsafe-inline' — React-rendered
+   <style> tags carry no nonce and are blocked, which froze every spinner in
+   packaged builds. Components still render a redundant inline <style> that the
+   CSP drops harmlessly; this global rule is what actually drives the animation. */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
