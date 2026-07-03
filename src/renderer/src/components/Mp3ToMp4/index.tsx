@@ -35,6 +35,9 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
   const [filenamePrefix, setFilenamePrefix] = useState<string>('')
   const [useGpu, setUseGpu] = useState<boolean>(true)
   const [burnSubtitles, setBurnSubtitles] = useState<boolean>(true)
+  const [subtitleOrientation, setSubtitleOrientation] = useState<'landscape' | 'vertical'>(
+    'landscape'
+  )
   const [converting, setConverting] = useState(false)
   const [results, setResults] = useState<{ outputs: string[]; errors: string[] } | null>(null)
   const [isDraggingOverImage, setIsDraggingOverImage] = useState(false)
@@ -63,6 +66,7 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
           setFilenamePrefix(cfg.mp4FilenamePrefix || '')
           setUseGpu(cfg.mp4UseGpu ?? true)
           setBurnSubtitles(cfg.mp4BurnSubtitles ?? true)
+          setSubtitleOrientation(cfg.mp4SubtitleOrientation ?? 'landscape')
           setConfigReady(true)
         }
       })
@@ -83,10 +87,19 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
         mp4ImagePath: imagePath,
         mp4FilenamePrefix: filenamePrefix,
         mp4UseGpu: useGpu,
-        mp4BurnSubtitles: burnSubtitles
+        mp4BurnSubtitles: burnSubtitles,
+        mp4SubtitleOrientation: subtitleOrientation
       })
       .catch(() => {})
-  }, [configReady, outputDir, imagePath, filenamePrefix, useGpu, burnSubtitles])
+  }, [
+    configReady,
+    outputDir,
+    imagePath,
+    filenamePrefix,
+    useGpu,
+    burnSubtitles,
+    subtitleOrientation
+  ])
 
   useEffect(() => {
     let canceled = false
@@ -237,7 +250,8 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
         outputDir: outputDir || undefined,
         filenamePrefix: filenamePrefix.trim() || undefined,
         useGpu,
-        burnSubtitles
+        burnSubtitles,
+        subtitleOrientation
       })
       if (res.canceled) {
         setResults({
@@ -252,7 +266,7 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
     } finally {
       setConverting(false)
     }
-  }, [imagePath, audioPaths, outputDir, filenamePrefix, useGpu, burnSubtitles])
+  }, [imagePath, audioPaths, outputDir, filenamePrefix, useGpu, burnSubtitles, subtitleOrientation])
 
   const canConvert = imagePath && audioPaths.length > 0 && !converting
   const handleCancel = useCallback(() => {
@@ -414,6 +428,41 @@ export function Mp3ToMp4({ onClose }: Mp3ToMp4Props): JSX.Element {
             ใช้ได้เฉพาะ MP3 ที่สร้างด้วย Smart-Gen (มีไฟล์ timeline) — อื่นๆ ข้ามอัตโนมัติ
           </span>
         </label>
+
+        {/* Orientation (only meaningful when burning subtitles — the plain
+            no-subtitle path keeps the image's native shape, untouched) */}
+        {burnSubtitles && (
+          <div style={s.section}>
+            <label style={s.label}>แนววิดีโอ</label>
+            <div style={s.row}>
+              <label style={s.radioRow}>
+                <input
+                  type="radio"
+                  name="subtitleOrientation"
+                  checked={subtitleOrientation === 'landscape'}
+                  onChange={() => setSubtitleOrientation('landscape')}
+                  disabled={converting}
+                />
+                <span>แนวนอน (1280×720)</span>
+              </label>
+              <label style={s.radioRow}>
+                <input
+                  type="radio"
+                  name="subtitleOrientation"
+                  checked={subtitleOrientation === 'vertical'}
+                  onChange={() => setSubtitleOrientation('vertical')}
+                  disabled={converting}
+                />
+                <span>แนวตั้ง (1080×1920)</span>
+              </label>
+            </div>
+            <div style={s.hint}>
+              {subtitleOrientation === 'landscape'
+                ? 'ภาพปกเต็ม ไม่ครอบตัด — เติมข้างด้วยพื้นหลังเบลอกันซับล้นแถบดำ'
+                : 'ครอบเต็มจอแนวตั้ง เหมาะกับภาพปก 9:16 (แทบไม่ครอบตัดถ้าภาพเป็นแนวตั้งอยู่แล้ว)'}
+            </div>
+          </div>
+        )}
 
         {/* Convert Button */}
         <button
@@ -746,6 +795,14 @@ const s: Record<string, React.CSSProperties> = {
     color: 'var(--text1)',
     cursor: 'pointer',
     flexWrap: 'wrap'
+  },
+  radioRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 13,
+    color: 'var(--text1)',
+    cursor: 'pointer'
   },
   convertBtn: {
     marginTop: 8,

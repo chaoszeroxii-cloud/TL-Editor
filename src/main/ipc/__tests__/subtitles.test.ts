@@ -6,9 +6,13 @@ import {
   escapeAssText,
   wrapForSubtitle,
   endTimesFromTimeline,
+  sliceAndShiftLines,
+  ctaLine,
   buildAss,
   timelineSidecarPathFor,
-  assFromMp3Path
+  readTimelineSidecar,
+  assFromMp3Path,
+  assForShortClip
 } from '../subtitles'
 
 describe('assTime', () => {
@@ -97,6 +101,52 @@ describe('endTimesFromTimeline', () => {
   })
 })
 
+describe('sliceAndShiftLines', () => {
+  const lines = [
+    { start: 0, end: 2, text: 'หนึ่ง' },
+    { start: 2, end: 5, text: 'สอง' },
+    { start: 5, end: 8, text: 'สาม' },
+    { start: 8, end: 12, text: 'สี่' }
+  ]
+
+  it('keeps only lines overlapping the range and shifts them to start at 0', () => {
+    expect(sliceAndShiftLines(lines, 2, 8)).toEqual([
+      { start: 0, end: 3, text: 'สอง' },
+      { start: 3, end: 6, text: 'สาม' }
+    ])
+  })
+
+  it('clamps a partially-overlapping edge line to the range boundary', () => {
+    // range [1, 6) starts mid-way through "หนึ่ง" (0-2) and ends mid-way
+    // through "สาม" (5-8) — both should be clamped, not dropped.
+    const sliced = sliceAndShiftLines(lines, 1, 6)
+    expect(sliced[0]).toEqual({ start: 0, end: 1, text: 'หนึ่ง' })
+    expect(sliced[sliced.length - 1]).toEqual({ start: 4, end: 5, text: 'สาม' })
+  })
+
+  it('returns an empty array when the range has no lines', () => {
+    expect(sliceAndShiftLines(lines, 20, 25)).toEqual([])
+  })
+
+  it('preserves each line\'s style tag', () => {
+    const withStyle = [{ start: 0, end: 3, text: 'x', style: 'CTA' as const }]
+    expect(sliceAndShiftLines(withStyle, 0, 3)[0].style).toBe('CTA')
+  })
+})
+
+describe('ctaLine', () => {
+  it('spans only the final `windowSec` of the clip, styled CTA', () => {
+    const l = ctaLine('ดูต่อ EP ถัดไป', 30, 3)
+    expect(l).toEqual({ start: 27, end: 30, text: 'ดูต่อ EP ถัดไป', style: 'CTA' })
+  })
+
+  it('clamps the start to 0 for a clip shorter than the window', () => {
+    const l = ctaLine('CTA', 2, 3)
+    expect(l.start).toBe(0)
+    expect(l.end).toBe(2)
+  })
+})
+
 describe('buildAss', () => {
   const ass = buildAss([
     { start: 0, end: 2.5, text: 'สวัสดี' },
@@ -110,11 +160,34 @@ describe('buildAss', () => {
     expect(ass).toMatch(/Style: Default,Sarabun,56,/)
   })
 
+  it('always declares a CTA style alongside Default, even when unused', () => {
+    expect(ass).toMatch(/Style: CTA,Sarabun,/)
+  })
+
   it('emits one Dialogue per line with correct timecodes and escaped text', () => {
     const dialogues = ass.split('\n').filter((l) => l.startsWith('Dialogue:'))
     expect(dialogues).toHaveLength(2)
     expect(dialogues[0]).toBe('Dialogue: 0,0:00:00.00,0:00:02.50,Default,,0,0,,สวัสดี')
     expect(dialogues[1]).toBe('Dialogue: 0,0:00:02.50,0:00:04.00,Default,,0,0,,ครับx')
+  })
+
+  it('routes a `style: CTA` line to the CTA style name in its Dialogue line', () => {
+    const withCta = buildAss([{ start: 0, end: 3, text: 'ตอนเต็มในช่อง', style: 'CTA' }])
+    expect(withCta).toContain('Dialogue: 0,0:00:00.00,0:00:03.00,CTA,,0,0,,ตอนเต็มในช่อง')
+  })
+
+  it('applies canvas/fontSize/maxSubUnits overrides without touching the default preset', () => {
+    const vertical = buildAss([{ start: 0, end: 1, text: 'x' }], {
+      canvasW: 1080,
+      canvasH: 1920,
+      fontSize: 64,
+      maxSubUnits: 26
+    })
+    expect(vertical).toContain('PlayResX: 1080')
+    expect(vertical).toContain('PlayResY: 1920')
+    expect(vertical).toMatch(/Style: Default,Sarabun,64,/)
+    // The original landscape default (no opts) is unaffected.
+    expect(ass).toContain('PlayResX: 1280')
   })
 })
 
@@ -179,5 +252,103 @@ describe('assFromMp3Path', () => {
 
   it('returns null when the sidecar is missing', async () => {
     expect(await assFromMp3Path(join(dir, 'nope.mp3'))).toBeNull()
+  })
+
+  it('uses the vertical (1080×1920) preset when orientation is "vertical"', async () => {
+    const mp3 = await writeSidecar('c.mp3', {
+      v: 2,
+      totalSec: 2,
+      lines: [{ row: 0, start: 0, text: 'แนวตั้ง' }]
+    })
+    const landscape = await assFromMp3Path(mp3)
+    const vertical = await assFromMp3Path(mp3, 'vertical')
+    expect(landscape).toContain('PlayResX: 1280')
+    expect(vertical).toContain('PlayResX: 1080')
+    expect(vertical).toContain('PlayResY: 1920')
+  })
+})
+
+describe('readTimelineSidecar', () => {
+  let dir: string
+  beforeAll(async () => {
+    dir = await fsPromises.mkdtemp(join(tmpdir(), 'tlsub-sidecar-test-'))
+    await fsPromises.mkdir(join(dir, '.tl-editor'), { recursive: true })
+  })
+  afterAll(async () => {
+    await fsPromises.rm(dir, { recursive: true, force: true })
+  })
+
+  it('returns totalSec + lines for a valid sidecar', async () => {
+    const mp3 = join(dir, 'a.mp3')
+    await fsPromises.writeFile(
+      join(dir, '.tl-editor', 'a.mp3.timeline.json'),
+      JSON.stringify({ v: 2, totalSec: 5, lines: [{ row: 0, start: 0, text: 'x' }] })
+    )
+    expect(await readTimelineSidecar(mp3)).toEqual({
+      totalSec: 5,
+      lines: [{ row: 0, start: 0, text: 'x' }]
+    })
+  })
+
+  it('returns null when lines is empty or missing', async () => {
+    const mp3 = join(dir, 'empty.mp3')
+    await fsPromises.writeFile(
+      join(dir, '.tl-editor', 'empty.mp3.timeline.json'),
+      JSON.stringify({ v: 2, totalSec: 0, lines: [] })
+    )
+    expect(await readTimelineSidecar(mp3)).toBeNull()
+  })
+})
+
+describe('assForShortClip', () => {
+  let dir: string
+  beforeAll(async () => {
+    dir = await fsPromises.mkdtemp(join(tmpdir(), 'tlsub-shorts-test-'))
+    await fsPromises.mkdir(join(dir, '.tl-editor'), { recursive: true })
+    await fsPromises.writeFile(
+      join(dir, '.tl-editor', 'ch.mp3.timeline.json'),
+      JSON.stringify({
+        v: 2,
+        totalSec: 12,
+        lines: [
+          { row: 0, start: 0, text: 'บทนำ' },
+          { row: 1, start: 3, text: 'จุดพีค' },
+          { row: 2, start: 6, text: 'คลิฟแฮงเกอร์' },
+          { row: 3, start: 9, text: 'ท้ายบท' }
+        ]
+      })
+    )
+  })
+  afterAll(async () => {
+    await fsPromises.rm(dir, { recursive: true, force: true })
+  })
+
+  it('builds a vertical-canvas ASS containing only the selected, time-shifted range', async () => {
+    const mp3 = join(dir, 'ch.mp3')
+    const ass = await assForShortClip(mp3, 3, 9)
+    expect(ass).toContain('PlayResX: 1080')
+    expect(ass).toContain('จุดพีค')
+    expect(ass).toContain('คลิฟแฮงเกอร์')
+    expect(ass).not.toContain('บทนำ')
+    expect(ass).not.toContain('ท้ายบท')
+    // Time-shifted: "จุดพีค" started at 3s in the chapter, so at 0s in the clip.
+    expect(ass).toContain('Dialogue: 0,0:00:00.00,')
+  })
+
+  it('appends a CTA line in the final 3 seconds when ctaText is given', async () => {
+    const mp3 = join(dir, 'ch.mp3')
+    const ass = await assForShortClip(mp3, 0, 12, 'ดูต่อ EP ถัดไป')
+    expect(ass).toContain('Dialogue: 0,0:00:09.00,0:00:12.00,CTA,,0,0,,ดูต่อ EP ถัดไป')
+  })
+
+  it('omits the CTA line when ctaText is empty/omitted', async () => {
+    const mp3 = join(dir, 'ch.mp3')
+    const ass = await assForShortClip(mp3, 0, 12)
+    expect(ass).not.toContain(',CTA,')
+  })
+
+  it('returns null when the range has no captioned line', async () => {
+    const mp3 = join(dir, 'ch.mp3')
+    expect(await assForShortClip(mp3, 100, 105)).toBeNull()
   })
 })

@@ -32,7 +32,10 @@ import type { PendingLineEdit } from './components/AIChatPanel/types'
 import { Mp3ToMp4 } from './components/Mp3ToMp4'
 import { MergeAudioPanel } from './components/MergeAudioPanel'
 import { ReadRealmPanel } from './components/ReadRealmPanel'
+import { BridgePanel } from './components/BridgePanel'
+import { AssetViewerPanel } from './components/AssetViewerPanel'
 import { YouTubePanel } from './components/YouTubePanel'
+import { ShortsPanel } from './components/ShortsPanel'
 import { SetupWizard } from './components/setup/SetupWizard'
 import {
   useStyleProfileStore,
@@ -702,6 +705,9 @@ export default function App(): JSX.Element {
   const [helpOpen, setHelpOpen] = useState(false)
   const [readrealmOpen, setReadrealmOpen] = useState(false)
   const [youtubeOpen, setYoutubeOpen] = useState(false)
+  const [shortsOpen, setShortsOpen] = useState(false)
+  const [bridgeOpen, setBridgeOpen] = useState(false)
+  const [assetViewerOpen, setAssetViewerOpen] = useState(false)
   // Local MP4 currently open in the floating VideoPlayer (null = closed).
   const [mp4Path, setMp4Path] = useState<string | null>(null)
 
@@ -741,6 +747,9 @@ export default function App(): JSX.Element {
           aiPanelOpen={app.aiPanelOpen || app.styleProfileOpen}
           readrealmOpen={readrealmOpen}
           youtubeOpen={youtubeOpen}
+          shortsOpen={shortsOpen}
+          bridgeOpen={bridgeOpen}
+          assetViewerOpen={assetViewerOpen}
           pairingSourcePath={pairingSourcePath}
           saving={files.saving}
           theme={theme}
@@ -755,6 +764,9 @@ export default function App(): JSX.Element {
           onToggleAi={handleToggleAiPanel}
           onToggleReadrealm={() => setReadrealmOpen((v) => !v)}
           onToggleYoutube={() => setYoutubeOpen((v) => !v)}
+          onToggleShorts={() => setShortsOpen((v) => !v)}
+          onToggleBridge={() => setBridgeOpen((v) => !v)}
+          onToggleAssets={() => setAssetViewerOpen((v) => !v)}
           onSelectPairingSource={handleSelectPairingSource}
           onRefresh={handleRefresh}
           onToggleTheme={toggleTheme}
@@ -927,6 +939,29 @@ export default function App(): JSX.Element {
       {youtubeOpen && (
         <ErrorBoundary name="YouTubePanel">
           <YouTubePanel onClose={() => setYoutubeOpen(false)} />
+        </ErrorBoundary>
+      )}
+      {shortsOpen && (
+        <ErrorBoundary name="ShortsPanel">
+          <ShortsPanel onClose={() => setShortsOpen(false)} />
+        </ErrorBoundary>
+      )}
+
+      {/* Image Bridge / ChatGPT account */}
+      {bridgeOpen && (
+        <ErrorBoundary name="BridgePanel">
+          <BridgePanel onClose={() => setBridgeOpen(false)} />
+        </ErrorBoundary>
+      )}
+
+      {/* Asset Viewer */}
+      {assetViewerOpen && (
+        <ErrorBoundary name="AssetViewerPanel">
+          <AssetViewerPanel
+            novelDir={app.rootDir}
+            glossary={gls.glossary}
+            onClose={() => setAssetViewerOpen(false)}
+          />
         </ErrorBoundary>
       )}
 
@@ -1109,6 +1144,9 @@ const TopBarRight = memo(function TopBarRight({
   aiPanelOpen,
   readrealmOpen,
   youtubeOpen,
+  shortsOpen,
+  bridgeOpen,
+  assetViewerOpen,
   pairingSourcePath,
   saving,
   theme,
@@ -1121,6 +1159,9 @@ const TopBarRight = memo(function TopBarRight({
   onToggleMergeAudio,
   onToggleReadrealm,
   onToggleYoutube,
+  onToggleShorts,
+  onToggleBridge,
+  onToggleAssets,
   onToggleAi,
   onSelectPairingSource,
   onRefresh,
@@ -1140,6 +1181,9 @@ const TopBarRight = memo(function TopBarRight({
   aiPanelOpen: boolean
   readrealmOpen: boolean
   youtubeOpen: boolean
+  shortsOpen: boolean
+  bridgeOpen: boolean
+  assetViewerOpen: boolean
   pairingSourcePath: string
   saving: boolean
   theme: 'dark' | 'light'
@@ -1153,6 +1197,9 @@ const TopBarRight = memo(function TopBarRight({
   onToggleMergeAudio: () => void
   onToggleReadrealm: () => void
   onToggleYoutube: () => void
+  onToggleShorts: () => void
+  onToggleBridge: () => void
+  onToggleAssets: () => void
   onSelectPairingSource: () => void
   onRefresh: () => void
   onToggleTheme: () => void
@@ -1266,6 +1313,30 @@ const TopBarRight = memo(function TopBarRight({
         label=""
         title="YouTube Publisher"
         onClick={onToggleYoutube}
+        compact={compact}
+      />
+      <ActionButton
+        active={shortsOpen}
+        icon="9:16"
+        label=""
+        title="ตัด Shorts (9:16)"
+        onClick={onToggleShorts}
+        compact={compact}
+      />
+      <ActionButton
+        active={bridgeOpen}
+        icon="🖼"
+        label=""
+        title="Image Bridge / ChatGPT Account"
+        onClick={onToggleBridge}
+        compact={compact}
+      />
+      <ActionButton
+        active={assetViewerOpen}
+        icon="🎨"
+        label=""
+        title="Asset Viewer (ตัวละคร / พื้นหลัง)"
+        onClick={onToggleAssets}
         compact={compact}
       />
       <button

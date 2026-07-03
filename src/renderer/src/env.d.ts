@@ -53,10 +53,15 @@ interface _EnvConfig {
   mp4FilenamePrefix: string
   mp4UseGpu: boolean
   mp4BurnSubtitles: boolean
+  mp4SubtitleOrientation: 'landscape' | 'vertical'
   pairingSourcePath: string
   mergeAudioSourceDir: string
   mergeAudioOutputDir: string
   mergeAudioPrefix: string
+  shortsSourceDir: string
+  shortsOutputDir: string
+  shortsImagePath: string
+  shortsCtaText: string
   readrealmFolder: string
   readrealmNote: string
   readrealmNovelId: string
@@ -93,10 +98,15 @@ interface _SaveConfigPayload {
   mp4FilenamePrefix?: string
   mp4UseGpu?: boolean
   mp4BurnSubtitles?: boolean
+  mp4SubtitleOrientation?: 'landscape' | 'vertical'
   pairingSourcePath?: string
   mergeAudioSourceDir?: string
   mergeAudioOutputDir?: string
   mergeAudioPrefix?: string
+  shortsSourceDir?: string
+  shortsOutputDir?: string
+  shortsImagePath?: string
+  shortsCtaText?: string
   readrealmFolder?: string
   readrealmNote?: string
   readrealmNovelId?: string
@@ -197,10 +207,28 @@ interface ElectronAPI {
     ffmpegPath?: string
     useGpu?: boolean
     burnSubtitles?: boolean
+    subtitleOrientation?: 'landscape' | 'vertical'
   }) => Promise<{ canceled?: boolean; outputs: string[]; errors: string[] }>
   cancelMp3ToMp4: () => Promise<boolean>
   /** Concatenate base64 MP3 segments via ffmpeg stream copy. Returns base64 result. */
   concatMp3s: (audioBase64Array: string[]) => Promise<string>
+
+  // ── Shorts (vertical 9:16 clips cut from a chapter's Smart-Gen timeline) ────
+  listTimelineMp3s: (dir: string) => Promise<Array<{ path: string; name: string }>>
+  readMp3Timeline: (
+    mp3Path: string
+  ) => Promise<{ totalSec: number; lines: Array<{ row: number; start: number; text?: string }> } | null>
+  createShortClip: (opts: {
+    mp3Path: string
+    imagePath: string
+    startSec: number
+    endSec: number
+    ctaText?: string
+    outputDir: string
+    ffmpegPath?: string
+    useGpu?: boolean
+  }) => Promise<{ outputPath: string }>
+  cancelShortClip: () => Promise<boolean>
 
   // ── Merge Episode Audio ──────────────────────────────────────────────────
   mergeEpisodeAudio: (opts: {
@@ -274,11 +302,76 @@ interface ElectronAPI {
     error?: string
   }>
   cancelYoutubeUpload: () => Promise<boolean>
+
+  // ── Visual-novel image assets ──────────────────────────────────────────────
+  imageGenerate: (opts: {
+    novelDir: string
+    kind: 'background' | 'character'
+    subject: string
+    name?: string
+    glossarySrc?: string
+    force?: boolean
+  }) => Promise<_ImageAsset>
+  imageEdit: (opts: {
+    novelDir: string
+    sourceId: string
+    instruction: string
+    name?: string
+  }) => Promise<_ImageAsset>
+  imageListAssets: (novelDir: string) => Promise<_ImageAsset[]>
+  imageDeleteAsset: (novelDir: string, id: string) => Promise<void>
+  imageBindCharacter: (novelDir: string, id: string, glossarySrc: string) => Promise<void>
+
+  // ── Image bridge (chatgpt-api sidecar) ─────────────────────────────────────
+  bridgeStatus: () => Promise<{
+    exeFound: boolean
+    managed: boolean
+    healthy: boolean
+    url: string
+    port: number
+  }>
+  bridgeStart: () => Promise<{ ok: boolean; reason?: string }>
+  bridgeStop: () => Promise<{ ok: boolean }>
+  bridgeListAccounts: () => Promise<_BridgeAccount[]>
+  bridgeAddCapture: (
+    account: string,
+    rawText: string
+  ) => Promise<{
+    ok: boolean
+    reason?: string
+    message?: string
+    failed?: string[]
+    expiresAt?: number | null
+  }>
+  bridgeVerifyAccount: (
+    account: string
+  ) => Promise<{ ok: boolean; reason?: string; status?: number; detail?: unknown }>
+  bridgeDeleteAccount: (account: string) => Promise<{ ok: boolean }>
 }
 
 declare global {
   interface Window {
     electron: ElectronAPI
+  }
+
+  interface _ImageAsset {
+    id: string
+    kind: 'background' | 'character'
+    name: string
+    subject: string
+    file: string
+    provider: string
+    model: string
+    createdAt: number
+    glossarySrc?: string
+    path: string
+  }
+
+  interface _BridgeAccount {
+    name: string
+    captureExists: boolean
+    expiresAt: number | null
+    expired: boolean
   }
 
   interface _RRNovel {

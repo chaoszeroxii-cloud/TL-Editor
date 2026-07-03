@@ -12,6 +12,8 @@ import { registerFsHandlers } from './ipc/fs'
 import { registerDialogHandlers } from './ipc/dialog'
 import { registerExternalHandlers } from './ipc/external'
 import { registerYoutubeHandlers } from './ipc/youtube'
+import { registerImageHandlers } from './ipc/image'
+import { registerBridgeHandlers } from './ipc/bridge'
 import { assertPathAllowed } from './ipc/pathAccess'
 
 // ─── Crash diagnostics ────────────────────────────────────────────────────────
@@ -250,6 +252,8 @@ app.whenReady().then(() => {
   registerDialogHandlers()
   registerExternalHandlers()
   registerYoutubeHandlers()
+  registerImageHandlers()
+  registerBridgeHandlers()
 
   createWindow()
 })

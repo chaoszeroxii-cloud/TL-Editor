@@ -80,7 +80,12 @@ export interface EnvConfig {
   mp4FilenamePrefix: string
   mp4UseGpu: boolean
   mp4BurnSubtitles: boolean
+  mp4SubtitleOrientation: 'landscape' | 'vertical'
   pairingSourcePath: string
+  shortsSourceDir: string
+  shortsOutputDir: string
+  shortsImagePath: string
+  shortsCtaText: string
 }
 
 export interface SaveConfigPayload {
@@ -101,5 +106,10 @@ export interface SaveConfigPayload {
   mp4FilenamePrefix?: string
   mp4UseGpu?: boolean
   mp4BurnSubtitles?: boolean
+  mp4SubtitleOrientation?: 'landscape' | 'vertical'
   pairingSourcePath?: string
+  shortsSourceDir?: string
+  shortsOutputDir?: string
+  shortsImagePath?: string
+  shortsCtaText?: string
 }

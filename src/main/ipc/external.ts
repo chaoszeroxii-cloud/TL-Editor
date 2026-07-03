@@ -6,7 +6,15 @@ import { basename, join } from 'path'
 import { existsSync, promises as fsPromises } from 'fs'
 import { tmpdir } from 'os'
 import * as https from 'https'
-import { assFromMp3Path, SUB_CANVAS_W, SUB_CANVAS_H } from './subtitles'
+import {
+  assFromMp3Path,
+  assForShortClip,
+  readTimelineSidecar,
+  SUB_CANVAS_W,
+  SUB_CANVAS_H,
+  SHORTS_CANVAS_W,
+  SHORTS_CANVAS_H
+} from './subtitles'
 
 // ─── Error logging utility ─────────────────────────────────────────────────────
 
@@ -41,6 +49,8 @@ let activeMp4Conversion: ReturnType<typeof spawn> | null = null
 let cancelMp4ConversionRequested = false
 let activeMergeAudio: ReturnType<typeof spawn> | null = null
 let cancelMergeAudioRequested = false
+let activeShortClip: ReturnType<typeof spawn> | null = null
+let cancelShortClipRequested = false
 
 // ─── Health check for TTS API (keep-alive) ────────────────────────────────────
 
@@ -274,19 +284,44 @@ function videoEncodeArgs(useGpu: boolean, hiQuality = false): string[] {
   return ['-c:v', 'libx264', '-preset', preset, '-crf', crf, '-pix_fmt', 'yuv420p']
 }
 
-// Build the `-vf` value that scales/pads the cover to a fixed 1280×720 canvas
-// (so the ASS PlayResX/Y and font size stay predictable) then burns in the ASS
-// subtitle track. Escaping a Windows path inside an avfilter `subtitles=` value
-// is notoriously fragile (drive colons, spaces, the filtergraph's own escape
-// layer), so we sidestep it entirely: ffmpeg runs with cwd set to the .ass's
-// directory and the file is referenced by its bare ASCII basename here — no
-// colon/slash/space ever reaches the filtergraph. The bundled Sarabun font is
-// copied into that same cwd, so `fontsdir=.` lets libass find it without a path.
-function buildSubtitleVf(assFileName: string): string {
-  const scalePad =
-    `scale=${SUB_CANVAS_W}:${SUB_CANVAS_H}:force_original_aspect_ratio=decrease,` +
-    `pad=${SUB_CANVAS_W}:${SUB_CANVAS_H}:(ow-iw)/2:(oh-ih)/2`
-  return `${scalePad},subtitles=${assFileName}:fontsdir=.`
+// Build the `-vf` value that composes the cover onto a fixed canvas (so the ASS
+// PlayResX/Y and font size stay predictable) then burns in the ASS subtitle
+// track. Two orientations:
+//
+// 'landscape' (1280×720, the original default): covers are usually tall 9:16
+// posters, which in a 16:9 canvas leaves black pillarbox bars on the sides — and
+// since the subtitle style is sized to the FULL canvas width, captions used to
+// visibly spill off the photo into those bars. Fix: instead of plain black
+// padding, fill the sides with a blurred, darkened copy of the same cover (split
+// into a blurred "bg" branch and a sharp centered "fg" branch, then overlay) —
+// the full image still shows uncropped, but there's real (if soft) image content
+// under the whole caption width.
+//
+// 'vertical' (1080×1920): covers are portrait already, so this just crops to
+// fill — no blur needed, and typically crops almost nothing (a 1536×2752 cover
+// is already ≈9:16). Matches the Shorts clip look.
+//
+// Escaping a Windows path inside an avfilter `subtitles=` value is notoriously
+// fragile (drive colons, spaces, the filtergraph's own escape layer), so we
+// sidestep it entirely: ffmpeg runs with cwd set to the .ass's directory and the
+// file is referenced by its bare ASCII basename here — no colon/slash/space ever
+// reaches the filtergraph. The bundled Sarabun font is copied into that same
+// cwd, so `fontsdir=.` lets libass find it without a path.
+function buildSubtitleVf(assFileName: string, orientation: 'landscape' | 'vertical'): string {
+  if (orientation === 'vertical') {
+    const fill =
+      `scale=${SHORTS_CANVAS_W}:${SHORTS_CANVAS_H}:force_original_aspect_ratio=increase,` +
+      `crop=${SHORTS_CANVAS_W}:${SHORTS_CANVAS_H}`
+    return `${fill},subtitles=${assFileName}:fontsdir=.`
+  }
+  const bg =
+    `scale=${SUB_CANVAS_W}:${SUB_CANVAS_H}:force_original_aspect_ratio=increase,` +
+    `crop=${SUB_CANVAS_W}:${SUB_CANVAS_H},gblur=sigma=25,eq=brightness=-0.15`
+  const fg = `scale=${SUB_CANVAS_W}:${SUB_CANVAS_H}:force_original_aspect_ratio=decrease`
+  return (
+    `split=2[bg][fg];[bg]${bg}[bg2];[fg]${fg}[fg2];` +
+    `[bg2][fg2]overlay=(W-w)/2:(H-h)/2,subtitles=${assFileName}:fontsdir=.`
+  )
 }
 
 // nvenc can be listed but fail at runtime (no NVIDIA GPU, driver too old, all
@@ -1133,12 +1168,14 @@ export function registerExternalHandlers(): void {
         ffmpegPath?: string
         useGpu?: boolean
         burnSubtitles?: boolean
+        subtitleOrientation?: 'landscape' | 'vertical'
       }
     ) => {
       const outputs: string[] = []
       const errors: string[] = []
       const imagePath = opts.imagePath?.trim()
       const audioPaths = (opts.audioPaths ?? []).filter(Boolean)
+      const orientation = opts.subtitleOrientation === 'vertical' ? 'vertical' : 'landscape'
       cancelMp4ConversionRequested = false
 
       if (!imagePath) throw new Error('Image path is required')
@@ -1217,7 +1254,7 @@ export function registerExternalHandlers(): void {
           let subCwd: string | undefined
           if (opts.burnSubtitles) {
             try {
-              const ass = await assFromMp3Path(audioPath)
+              const ass = await assFromMp3Path(audioPath, orientation)
               if (ass) {
                 const workDir = join(tmpdir(), 'tl-editor-sub')
                 await fsPromises.mkdir(workDir, { recursive: true })
@@ -1236,7 +1273,7 @@ export function registerExternalHandlers(): void {
               subCwd = undefined
             }
           }
-          const vfArg = assTempPath ? buildSubtitleVf(basename(assTempPath)) : null
+          const vfArg = assTempPath ? buildSubtitleVf(basename(assTempPath), orientation) : null
 
           const buildArgs = (gpu: boolean): string[] => [
             '-loop',
@@ -1333,6 +1370,196 @@ export function registerExternalHandlers(): void {
       return { outputs, errors }
     }
   )
+
+  // ── Shorts: vertical 9:16 clips cut from a chapter's Smart-Gen timeline ─────
+
+  // Isolated from runFfmpeg/activeMp4Conversion — Shorts and the batch MP3→MP4
+  // converter can plausibly run from panels open at the same time, and each
+  // needs its own cancel target (mirrors the existing per-feature pattern:
+  // activeMergeAudio/cancelMergeAudioRequested is already separate from mp4's).
+  function runShortClipFfmpeg(args: string[], ffmpegPath?: string, cwd?: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn(resolveFfmpegBinary(ffmpegPath), args, { windowsHide: true, cwd })
+      activeShortClip = proc
+      let stderr = ''
+      proc.stderr.on('data', (chunk) => {
+        stderr += String(chunk)
+      })
+      proc.on('error', reject)
+      proc.on('close', (code) => {
+        activeShortClip = null
+        if (cancelShortClipRequested) return reject(new Error('Short clip cancelled'))
+        if (code === 0) return resolve()
+        reject(new Error(stderr.trim() || `ffmpeg exited with code ${code ?? -1}`))
+      })
+    })
+  }
+
+  // Always numbers the clip (`_short_1`, `_short_2`, …), scanning outputDir for
+  // the highest existing suffix so repeated clips from the same chapter — even
+  // across app restarts — never collide or reuse a number.
+  async function nextShortClipName(mp3Path: string, outputDir: string): Promise<string> {
+    const base = sanitizeFilenamePart(basename(mp3Path).replace(/\.[^.]+$/, ''))
+    let maxN = 0
+    try {
+      const files = await fsPromises.readdir(outputDir)
+      const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const re = new RegExp(`^${escaped}_short_(\\d+)\\.mp4$`, 'i')
+      for (const f of files) {
+        const m = f.match(re)
+        if (m) maxN = Math.max(maxN, parseInt(m[1], 10))
+      }
+    } catch {
+      // outputDir doesn't exist yet — first clip gets _short_1.
+    }
+    return `${base}_short_${maxN + 1}.mp4`
+  }
+
+  // List .mp3 files in `dir` that have a usable (v2, has text) timeline sidecar
+  // — i.e. were made with Smart-Gen and can drive a Shorts clip's captions.
+  ipcMain.handle('list-timeline-mp3s', async (_e, dir: string) => {
+    if (!dir?.trim()) return []
+    let files: string[]
+    try {
+      files = await fsPromises.readdir(dir)
+    } catch {
+      return []
+    }
+    const results: { path: string; name: string }[] = []
+    for (const name of files) {
+      if (!/\.mp3$/i.test(name)) continue
+      const p = join(dir, name)
+      if (await readTimelineSidecar(p)) results.push({ path: p, name })
+    }
+    return results
+  })
+
+  // Timeline lines (row/start/text) for the line-range picker UI.
+  ipcMain.handle('read-mp3-timeline', async (_e, mp3Path: string) => readTimelineSidecar(mp3Path))
+
+  ipcMain.handle(
+    'create-short-clip',
+    async (
+      _e,
+      opts: {
+        mp3Path: string
+        imagePath: string
+        startSec: number
+        endSec: number
+        ctaText?: string
+        outputDir: string
+        ffmpegPath?: string
+        useGpu?: boolean
+      }
+    ) => {
+      const mp3Path = opts.mp3Path?.trim()
+      const imagePath = opts.imagePath?.trim()
+      const outputDir = opts.outputDir?.trim()
+      const startSec = Number(opts.startSec)
+      const endSec = Number(opts.endSec)
+
+      if (!mp3Path) throw new Error('mp3Path is required')
+      if (!imagePath) throw new Error('imagePath is required')
+      if (!outputDir) throw new Error('outputDir is required')
+      if (!(endSec > startSec)) throw new Error('endSec must be greater than startSec')
+
+      await fsPromises.access(mp3Path)
+      await fsPromises.access(imagePath)
+      await fsPromises.mkdir(outputDir, { recursive: true })
+      cancelShortClipRequested = false
+
+      const workDir = join(tmpdir(), 'tl-editor-sub')
+      await fsPromises.mkdir(workDir, { recursive: true })
+      const ts = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+      const trimmedMp3 = join(workDir, `short_${ts}.mp3`)
+      const assPath = join(workDir, `short_${ts}.ass`)
+
+      try {
+        const ass = await assForShortClip(mp3Path, startSec, endSec, opts.ctaText)
+        if (!ass) throw new Error('ช่วงที่เลือกไม่มีบทพูด — ลองขยับช่วงที่เลือก')
+        await fsPromises.writeFile(assPath, ass, 'utf-8')
+
+        const fontSrc = resolveBundledFontPath()
+        if (fontSrc) {
+          const fontDst = join(workDir, basename(fontSrc))
+          if (!existsSync(fontDst)) await fsPromises.copyFile(fontSrc, fontDst)
+        }
+
+        // Input-side seek + -t (not -to, whose meaning shifts once -ss precedes
+        // -i) trims fast via stream copy. MP3 has no GOP/keyframes, so ffmpeg
+        // starts at the nearest frame — drift is well under audible (<30ms).
+        await runShortClipFfmpeg(
+          [
+            '-y',
+            '-ss',
+            String(startSec),
+            '-i',
+            mp3Path,
+            '-t',
+            String(endSec - startSec),
+            '-c',
+            'copy',
+            trimmedMp3
+          ],
+          opts.ffmpegPath
+        )
+
+        const targetPath = join(outputDir, await nextShortClipName(mp3Path, outputDir))
+        let gpuEnabled = opts.useGpu !== false && (await isNvencListed(opts.ffmpegPath))
+        const vfArg = buildSubtitleVf(basename(assPath), 'vertical')
+        // AAC (not the batch converter's `-acodec copy`): Shorts target mobile /
+        // social upload flows where raw MP3-in-MP4 audio is less reliably supported.
+        const buildArgs = (gpu: boolean): string[] => [
+          '-loop',
+          '1',
+          '-framerate',
+          '10',
+          '-i',
+          imagePath,
+          '-i',
+          trimmedMp3,
+          '-map',
+          '0:v',
+          '-map',
+          '1:a',
+          '-r',
+          '10',
+          '-vf',
+          vfArg,
+          ...videoEncodeArgs(gpu, true),
+          '-acodec',
+          'aac',
+          '-y',
+          '-shortest',
+          targetPath
+        ]
+
+        try {
+          await runShortClipFfmpeg(buildArgs(gpuEnabled), opts.ffmpegPath, workDir)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          if (gpuEnabled && !cancelShortClipRequested && isNvencRuntimeError(msg)) {
+            nvencListedCache = false
+            gpuEnabled = false
+            await runShortClipFfmpeg(buildArgs(false), opts.ffmpegPath, workDir)
+          } else {
+            throw err
+          }
+        }
+
+        return { outputPath: targetPath }
+      } finally {
+        await fsPromises.unlink(trimmedMp3).catch(() => {})
+        await fsPromises.unlink(assPath).catch(() => {})
+      }
+    }
+  )
+
+  ipcMain.handle('cancel-short-clip', () => {
+    cancelShortClipRequested = true
+    activeShortClip?.kill()
+    return true
+  })
 
   // ── Concatenate MP3 segments via ffmpeg (for smart TTS re-gen) ──────────────
   // Takes an array of base64-encoded MP3 strings, writes to temp files,

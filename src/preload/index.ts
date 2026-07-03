@@ -100,9 +100,25 @@ contextBridge.exposeInMainWorld('electron', {
     ffmpegPath?: string
     useGpu?: boolean
     burnSubtitles?: boolean
+    subtitleOrientation?: 'landscape' | 'vertical'
   }) => ipcRenderer.invoke('convert-mp3-to-mp4', opts),
   cancelMp3ToMp4: () => ipcRenderer.invoke('cancel-mp3-to-mp4'),
   concatMp3s: (audioBase64Array: string[]) => ipcRenderer.invoke('concat-mp3s', audioBase64Array),
+
+  // Shorts (vertical 9:16 clips cut from a chapter's Smart-Gen timeline)
+  listTimelineMp3s: (dir: string) => ipcRenderer.invoke('list-timeline-mp3s', dir),
+  readMp3Timeline: (mp3Path: string) => ipcRenderer.invoke('read-mp3-timeline', mp3Path),
+  createShortClip: (opts: {
+    mp3Path: string
+    imagePath: string
+    startSec: number
+    endSec: number
+    ctaText?: string
+    outputDir: string
+    ffmpegPath?: string
+    useGpu?: boolean
+  }) => ipcRenderer.invoke('create-short-clip', opts),
+  cancelShortClip: () => ipcRenderer.invoke('cancel-short-clip'),
   mergeEpisodeAudio: (opts: {
     sourceDir: string
     fromEp: number
@@ -150,5 +166,32 @@ contextBridge.exposeInMainWorld('electron', {
     playlistId?: string
     thumbnailPath?: string
   }) => ipcRenderer.invoke('youtube-upload-video', opts),
-  cancelYoutubeUpload: () => ipcRenderer.invoke('cancel-youtube-upload')
+  cancelYoutubeUpload: () => ipcRenderer.invoke('cancel-youtube-upload'),
+
+  // Visual-novel image assets
+  imageGenerate: (opts: {
+    novelDir: string
+    kind: 'background' | 'character'
+    subject: string
+    name?: string
+    glossarySrc?: string
+    force?: boolean
+  }) => ipcRenderer.invoke('image:generate', opts),
+  imageEdit: (opts: { novelDir: string; sourceId: string; instruction: string; name?: string }) =>
+    ipcRenderer.invoke('image:edit', opts),
+  imageListAssets: (novelDir: string) => ipcRenderer.invoke('image:list-assets', novelDir),
+  imageDeleteAsset: (novelDir: string, id: string) =>
+    ipcRenderer.invoke('image:delete-asset', novelDir, id),
+  imageBindCharacter: (novelDir: string, id: string, glossarySrc: string) =>
+    ipcRenderer.invoke('image:bind-character', novelDir, id, glossarySrc),
+
+  // Image bridge (chatgpt-api sidecar) lifecycle + account captures
+  bridgeStatus: () => ipcRenderer.invoke('bridge:status'),
+  bridgeStart: () => ipcRenderer.invoke('bridge:start'),
+  bridgeStop: () => ipcRenderer.invoke('bridge:stop'),
+  bridgeListAccounts: () => ipcRenderer.invoke('bridge:list-accounts'),
+  bridgeAddCapture: (account: string, rawText: string) =>
+    ipcRenderer.invoke('bridge:add-capture', account, rawText),
+  bridgeVerifyAccount: (account: string) => ipcRenderer.invoke('bridge:verify-account', account),
+  bridgeDeleteAccount: (account: string) => ipcRenderer.invoke('bridge:delete-account', account)
 })

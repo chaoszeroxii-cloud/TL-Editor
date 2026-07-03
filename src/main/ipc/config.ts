@@ -30,10 +30,16 @@ export interface AppConfig {
   mp4FilenamePrefix?: string
   mp4UseGpu?: boolean
   mp4BurnSubtitles?: boolean
+  mp4SubtitleOrientation?: 'landscape' | 'vertical'
   pairingSourcePath?: string
   mergeAudioSourceDir?: string
   mergeAudioOutputDir?: string
   mergeAudioPrefix?: string
+  // Shorts (vertical 9:16 clips cut from a chapter's Smart-Gen timeline)
+  shortsSourceDir?: string
+  shortsOutputDir?: string
+  shortsImagePath?: string
+  shortsCtaText?: string
   readrealmFolder?: string
   readrealmNote?: string
   readrealmNovelId?: string
@@ -48,6 +54,14 @@ export interface AppConfig {
   youtubePlaylistId?: string
   youtubeIntervalHrs?: number
   youtubeAppendPlaylistLink?: boolean
+  // Visual-novel image generation (Episode Video)
+  imageProvider?: string
+  imageApiUrl?: string
+  imageApiKey?: string
+  imageModel?: string
+  imageStyleDirective?: string
+  imageBridgePath?: string
+  imageBridgeAutoStart?: boolean
 }
 
 // ─── Keytar helpers (secure credential storage) ───────────────────────────────
@@ -144,10 +158,18 @@ export function registerConfigHandlers(): void {
       mp4FilenamePrefix: cfg.mp4FilenamePrefix ?? '',
       mp4UseGpu: cfg.mp4UseGpu ?? true,
       mp4BurnSubtitles: cfg.mp4BurnSubtitles ?? true,
+      mp4SubtitleOrientation: cfg.mp4SubtitleOrientation ?? 'landscape',
       pairingSourcePath: cfg.pairingSourcePath ?? '',
       mergeAudioSourceDir: cfg.mergeAudioSourceDir ?? '',
       mergeAudioOutputDir: cfg.mergeAudioOutputDir ?? '',
       mergeAudioPrefix: cfg.mergeAudioPrefix ?? '',
+      // Shorts: default source/output/cover from the existing TTS/MP4 fields
+      // (mirrors YouTubePanel defaulting its thumbnail from mp4ImagePath) so a
+      // first-time user doesn't have to re-pick folders they already set.
+      shortsSourceDir: cfg.shortsSourceDir ?? cfg.ttsOutputPath ?? '',
+      shortsOutputDir: cfg.shortsOutputDir ?? cfg.mp4OutputPath ?? '',
+      shortsImagePath: cfg.shortsImagePath ?? cfg.mp4ImagePath ?? '',
+      shortsCtaText: cfg.shortsCtaText ?? 'ตอนเต็มอยู่ในช่อง',
       readrealmFolder: cfg.readrealmFolder ?? '',
       readrealmNote: cfg.readrealmNote ?? '',
       readrealmNovelId: cfg.readrealmNovelId ?? '',
@@ -162,7 +184,15 @@ export function registerConfigHandlers(): void {
       youtubeCategoryId: cfg.youtubeCategoryId ?? '22',
       youtubePlaylistId: cfg.youtubePlaylistId ?? '',
       youtubeIntervalHrs: cfg.youtubeIntervalHrs ?? 24,
-      youtubeAppendPlaylistLink: cfg.youtubeAppendPlaylistLink ?? true
+      youtubeAppendPlaylistLink: cfg.youtubeAppendPlaylistLink ?? true,
+      // Visual-novel image generation
+      imageProvider: cfg.imageProvider ?? 'chatgpt-api',
+      imageApiUrl: cfg.imageApiUrl ?? 'http://127.0.0.1:8765/v1',
+      imageApiKey: (await loadApiKey('chatgpt-bridge-key')) ?? cfg.imageApiKey ?? '',
+      imageModel: cfg.imageModel ?? 'gpt-image-1',
+      imageStyleDirective: cfg.imageStyleDirective ?? '',
+      imageBridgePath: cfg.imageBridgePath ?? '',
+      imageBridgeAutoStart: cfg.imageBridgeAutoStart ?? true
     }
   })
 
@@ -181,13 +211,17 @@ export function registerConfigHandlers(): void {
     if (patch.ttsApiKey) {
       await saveApiKey('novel-tts-key', patch.ttsApiKey)
     }
+    if (patch.imageApiKey !== undefined) {
+      if (patch.imageApiKey) await saveApiKey('chatgpt-bridge-key', patch.imageApiKey)
+      else await deleteApiKey('chatgpt-bridge-key')
+    }
 
     const configPath = getConfigPath()
     const current = existsSync(configPath) ? loadConfig() : {}
 
     // Merge patch, but remove API keys before saving
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { aiApiKey, ttsApiKey, ...safePatch } = patch
+    const { aiApiKey, ttsApiKey, imageApiKey, ...safePatch } = patch
     const merged: AppConfig = { ...current, ...safePatch }
     await fsPromises.writeFile(configPath, JSON.stringify(merged, null, 2), 'utf-8')
   })
