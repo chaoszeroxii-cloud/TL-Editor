@@ -284,6 +284,24 @@ function videoEncodeArgs(useGpu: boolean, hiQuality = false): string[] {
   return ['-c:v', 'libx264', '-preset', preset, '-crf', crf, '-pix_fmt', 'yuv420p']
 }
 
+// Composition-only step (scale/crop/blur/overlay) for a cover image, no
+// subtitles. Split out from buildSubtitleVf so the batch converter can
+// pre-render this once per cover (see renderComposedBackground) instead of
+// recomputing it — most importantly the gblur — on every output frame.
+function buildBackgroundVf(orientation: 'landscape' | 'vertical'): string {
+  if (orientation === 'vertical') {
+    return (
+      `scale=${SHORTS_CANVAS_W}:${SHORTS_CANVAS_H}:force_original_aspect_ratio=increase,` +
+      `crop=${SHORTS_CANVAS_W}:${SHORTS_CANVAS_H}`
+    )
+  }
+  const bg =
+    `scale=${SUB_CANVAS_W}:${SUB_CANVAS_H}:force_original_aspect_ratio=increase,` +
+    `crop=${SUB_CANVAS_W}:${SUB_CANVAS_H},gblur=sigma=25,eq=brightness=-0.15`
+  const fg = `scale=${SUB_CANVAS_W}:${SUB_CANVAS_H}:force_original_aspect_ratio=decrease`
+  return `split=2[bg][fg];[bg]${bg}[bg2];[fg]${fg}[fg2];[bg2][fg2]overlay=(W-w)/2:(H-h)/2`
+}
+
 // Build the `-vf` value that composes the cover onto a fixed canvas (so the ASS
 // PlayResX/Y and font size stay predictable) then burns in the ASS subtitle
 // track. Two orientations:
@@ -308,20 +326,7 @@ function videoEncodeArgs(useGpu: boolean, hiQuality = false): string[] {
 // reaches the filtergraph. The bundled Sarabun font is copied into that same
 // cwd, so `fontsdir=.` lets libass find it without a path.
 function buildSubtitleVf(assFileName: string, orientation: 'landscape' | 'vertical'): string {
-  if (orientation === 'vertical') {
-    const fill =
-      `scale=${SHORTS_CANVAS_W}:${SHORTS_CANVAS_H}:force_original_aspect_ratio=increase,` +
-      `crop=${SHORTS_CANVAS_W}:${SHORTS_CANVAS_H}`
-    return `${fill},subtitles=${assFileName}:fontsdir=.`
-  }
-  const bg =
-    `scale=${SUB_CANVAS_W}:${SUB_CANVAS_H}:force_original_aspect_ratio=increase,` +
-    `crop=${SUB_CANVAS_W}:${SUB_CANVAS_H},gblur=sigma=25,eq=brightness=-0.15`
-  const fg = `scale=${SUB_CANVAS_W}:${SUB_CANVAS_H}:force_original_aspect_ratio=decrease`
-  return (
-    `split=2[bg][fg];[bg]${bg}[bg2];[fg]${fg}[fg2];` +
-    `[bg2][fg2]overlay=(W-w)/2:(H-h)/2,subtitles=${assFileName}:fontsdir=.`
-  )
+  return `${buildBackgroundVf(orientation)},subtitles=${assFileName}:fontsdir=.`
 }
 
 // nvenc can be listed but fail at runtime (no NVIDIA GPU, driver too old, all
@@ -1275,33 +1280,68 @@ export function registerExternalHandlers(): void {
               subCwd = undefined
             }
           }
-          const vfArg = assTempPath ? buildSubtitleVf(basename(assTempPath), orientation) : null
 
-          const buildArgs = (gpu: boolean): string[] => [
-            '-loop',
-            '1',
-            '-framerate',
-            // A static image at 1 fps would only let the subtitles filter sample
-            // once a second (subs lag ~1s). Match the 10 fps output when burning.
-            vfArg ? '10' : '1',
-            '-i',
-            imagePath,
-            '-i',
-            audioPath,
-            '-map',
-            '0:v',
-            '-map',
-            '1:a',
-            '-r',
-            '10',
-            ...(vfArg ? ['-vf', vfArg] : []),
-            ...videoEncodeArgs(gpu, !!vfArg),
-            '-acodec',
-            'copy',
-            '-y',
-            '-shortest',
-            targetPath
-          ]
+          // With subtitles: compose the background (scale/crop/blur/overlay) ONCE
+          // via the `loop` filter, which clones that single decoded+filtered frame
+          // for the rest of the video, instead of recomputing scale/crop/gblur on
+          // every one of the ~10fps*duration output frames (gblur(sigma=25) in
+          // particular is expensive and the cover never changes mid-video). This
+          // must stay a single ffmpeg process/filtergraph — a separate pre-render
+          // pass through an intermediate file measurably drifts the pixels (an
+          // extra colorspace round-trip), which would break output parity.
+          // setpts renumbers the looped frames' timestamps to a steady sequence;
+          // fps=10 then locks them to the target rate before the subtitle burn,
+          // which is the only filter that must actually vary frame to frame.
+          // Without subtitles the args stay byte-identical to the original
+          // still-image encode (parity for that path is unaffected by this change).
+          const buildArgs = (gpu: boolean): string[] => {
+            if (assTempPath) {
+              const filterComplex =
+                `[0:v]${buildBackgroundVf(orientation)},` +
+                `loop=loop=-1:size=1:start=0,setpts=N/(10*TB),fps=10,` +
+                `subtitles=${basename(assTempPath)}:fontsdir=.[vout]`
+              return [
+                '-i',
+                imagePath,
+                '-i',
+                audioPath,
+                '-filter_complex',
+                filterComplex,
+                '-map',
+                '[vout]',
+                '-map',
+                '1:a',
+                ...videoEncodeArgs(gpu, true),
+                '-acodec',
+                'copy',
+                '-y',
+                '-shortest',
+                targetPath
+              ]
+            }
+            return [
+              '-loop',
+              '1',
+              '-framerate',
+              '1',
+              '-i',
+              imagePath,
+              '-i',
+              audioPath,
+              '-map',
+              '0:v',
+              '-map',
+              '1:a',
+              '-r',
+              '10',
+              ...videoEncodeArgs(gpu, false),
+              '-acodec',
+              'copy',
+              '-y',
+              '-shortest',
+              targetPath
+            ]
+          }
 
           try {
             await runFfmpeg(buildArgs(gpuEnabled), opts.ffmpegPath, onProgress, subCwd)
